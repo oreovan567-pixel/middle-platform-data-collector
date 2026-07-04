@@ -10,22 +10,28 @@ if _ROOT not in sys.path:
 
 # ── Vercel 兼容：将数据库复制到 /tmp（可写区域）──
 _TMP_DATA = "/tmp/data"
-_SRC_DATA = os.path.join(_ROOT, "middle-platform-data-collector-master", "data")
+os.makedirs(_TMP_DATA, exist_ok=True)
 
-if not os.path.isdir(_SRC_DATA):
-    _SRC_DATA = os.path.join(_ROOT, "data")
+# 搜索 data 目录（尝试多个可能路径）
+_SRC_DATA = None
+for candidate in [
+    os.path.join(_ROOT, "data"),
+    os.path.join(_ROOT, "middle-platform-data-collector-master", "data"),
+]:
+    if os.path.isdir(candidate):
+        _SRC_DATA = candidate
+        break
 
-if not os.path.exists(_TMP_DATA):
-    os.makedirs(_TMP_DATA, exist_ok=True)
-
-if os.path.isdir(_SRC_DATA):
+# 复制所有 .db 文件到 /tmp/data
+if _SRC_DATA:
     for fname in os.listdir(_SRC_DATA):
         if fname.endswith(".db"):
             src = os.path.join(_SRC_DATA, fname)
             dst = os.path.join(_TMP_DATA, fname)
-            if not os.path.exists(dst):
-                shutil.copy2(src, dst)
+            # 每次都覆盖复制，确保数据最新
+            shutil.copy2(src, dst)
 
+# 设置环境变量
 os.environ["DATA_DIR"] = _TMP_DATA
 os.environ["VERCEL"] = "1"
 
