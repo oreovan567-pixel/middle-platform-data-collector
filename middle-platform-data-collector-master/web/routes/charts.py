@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import sqlite3
 import requests
 from datetime import date, datetime
@@ -2146,7 +2147,8 @@ def module_usage():
 
     # ── 尝试 Metabase API（首选数据源）──
     # Metabase 模块卡片仅支持 stage 参数，grade/subject 无法传递，需走 SLS 回退
-    if not grade and not subject:
+    # Vercel 跳过：Metabase API 逐校查询太慢，会超过 10 秒限制
+    if not grade and not subject and not os.environ.get("VERCEL"):
         try:
             metabase_result = asyncio.run(_query_metabase_modules(
                 start_dt.date(), end_dt.date(), stage, school_id_set, types
@@ -2155,8 +2157,10 @@ def module_usage():
                 return jsonify(metabase_result)
         except Exception as e:
             logger.warning("Metabase API 查询失败，回退到 SLS: %s", e)
-    else:
+    elif grade or subject:
         logger.info("grade/subject 筛选激活，跳过 Metabase API，走 SLS 回退")
+    else:
+        logger.info("Vercel 环境，跳过 Metabase API，走 SLS")
 
     # ── 回退到 SLS / metabase.db ──
     start_ms = int(start_dt.timestamp() * 1000)
