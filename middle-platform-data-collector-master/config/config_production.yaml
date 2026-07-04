@@ -1,0 +1,33 @@
+# 生产环境配置（Vercel 部署使用）
+# 此文件包含只读凭证，用于 Vercel serverless 环境
+browser:
+  headless: true
+  slow_mo: 0
+  default_timeout: 30000
+
+schools: []
+
+database: {}
+
+credentials:
+  lida:
+    url: "https://lida.qimingdaren.com/#/workbench"
+    username: ""
+    password: ""
+
+  grafana:
+    url: "https://grafana.qimingdaren.com/dashboards"
+    username: "liguohao"
+    password: "nj71mJ8uK8PXBIIm"
+    api_token: ""
+
+  main_site:
+    url: "https://www.qimingdaren.com/#/platform/login"
+    username: ""
+    password: ""
+
+  metabase:
+    url: "https://metabase.qimingdaren.com"
+    username: "liguohao@qimingdaren.com"
+    password: "6PL899zyI7vHgP"
+    dashboard_id: 6

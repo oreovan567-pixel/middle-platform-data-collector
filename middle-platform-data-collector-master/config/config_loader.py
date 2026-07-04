@@ -8,6 +8,7 @@ import yaml
 
 _CONFIG_DIR = Path(__file__).parent
 _CONFIG_PATH = _CONFIG_DIR / "config.yaml"
+_PROD_CONFIG_PATH = _CONFIG_DIR / "config_production.yaml"
 _EXAMPLE_PATH = _CONFIG_DIR / "config.yaml.example"
 
 _config_cache: dict | None = None
@@ -76,7 +77,12 @@ def load_config(force_reload: bool = False) -> dict:
         return _config_cache
 
     if not _CONFIG_PATH.exists():
-        # Serverless 环境（如 Vercel）：从环境变量构建配置
+        # 尝试生产配置文件（Vercel 等 serverless 环境）
+        if _PROD_CONFIG_PATH.exists():
+            raw = _load_yaml(_PROD_CONFIG_PATH)
+            _config_cache = raw
+            return raw
+        # 从环境变量构建配置
         if os.environ.get("VERCEL") or os.environ.get("METABASE_USERNAME"):
             _config_cache = _default_config_from_env()
             return _config_cache
