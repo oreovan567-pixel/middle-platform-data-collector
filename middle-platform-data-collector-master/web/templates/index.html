@@ -449,6 +449,27 @@ async function updateDashboard() {
     var mEnd = new Date(eD.getFullYear(), eD.getMonth()-1, eD.getDate());
 
     var tongbi=null, huanbi=null;
+    // 优先尝试合并 KPI API（Vercel 上更快）
+    try {
+        var kpiParams = new URLSearchParams();
+        kpiParams.set('start_date', startDate);
+        kpiParams.set('end_date', endDate);
+        var stage = document.getElementById('f_stage') ? document.getElementById('f_stage').value : '';
+        if (stage) kpiParams.set('stage', stage);
+        var kpiResp = await fetch('/api/charts/kpi-summary?' + kpiParams.toString());
+        var kpiData = await kpiResp.json();
+        if (kpiData.current && kpiData.current.dailyUV > 0) {
+            // 使用合并 API 的结果
+            var cur = kpiData.current;
+            var tb = kpiData.tongbi;
+            var hb = kpiData.huanbi;
+            updateKPIs(cur, tb, hb);
+            renderCharts(data);
+            return;
+        }
+    } catch(e) { console.log('kpi-summary failed, fallback to 3 calls:', e); }
+
+    // 回退：3 次单独调用
     try { tongbi = await fetchModuleUsage(buildParams(fmtDate(tStart), fmtDate(tEnd))); } catch(e){}
     try { huanbi = await fetchModuleUsage(buildParams(fmtDate(mStart), fmtDate(mEnd))); } catch(e){}
 

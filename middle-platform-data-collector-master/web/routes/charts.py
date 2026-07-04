@@ -7,7 +7,7 @@ import logging
 import os
 import sqlite3
 import requests
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from flask import Blueprint, render_template, request, jsonify, redirect, session
@@ -2114,6 +2114,189 @@ def trend_chart():
     finally:
         if conn:
             conn.close()
+
+
+@charts_bp.route("/api/charts/kpi-summary")
+def kpi_summary():
+    """首页 KPI 汇总 API（含同比/环比）
+
+    一次请求返回当期 + 同比 + 环比三个时段的 KPI 数据，
+    避免前端 3 次调用导致 Vercel 超时。
+    """
+    start_date = request.args.get("start_date", "")
+    end_date = request.args.get("end_date", "")
+    stage = request.args.get("stage", "")
+    types = request.args.get("types", "")
+
+    if not start_date or not end_date:
+        return jsonify({"error": "时间范围为必填项"}), 400
+
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({"error": "日期格式错误"}), 400
+
+    days = (end_dt - start_dt).days + 1
+    # 同比：往前推相同天数
+    tb_end = start_dt - timedelta(days=1)
+    tb_start = tb_end - timedelta(days=days - 1)
+    # 环比：上月相同日期范围
+    hb_start = datetime(start_dt.year, start_dt.month - 1 if start_dt.month > 1 else 12, start_dt.day)
+    hb_end = datetime(end_dt.year, end_dt.month - 1 if end_dt.month > 1 else 12, end_dt.day)
+
+    periods = {
+        "cur": (start_dt, end_dt),
+        "tb": (tb_start, tb_end),
+        "hb": (hb_start, hb_end),
+    }
+
+    def _query_one(label, s_dt, e_dt):
+        """查询一个时段的 KPI 数据"""
+        s_ms = int(s_dt.timestamp() * 1000)
+        e_ms = int(e_dt.timestamp() * 1000) + 86399000
+        auth_headers = _get_grafana_auth()
+        if not auth_headers:
+            return None
+
+        # 构建 8 个模块的查询
+        queries = []
+        for mod in _MODULE_DEFS:
+            key = mod["key"]
+            url = mod["url"]
+            url_filter = f' and url:{url}*' if url else ""
+            query = (
+                f'* and host:"research-api.qimingdaren.com"'
+                f' and not tianli_school_id:"-"'
+                f'{url_filter}'
+                f' | SELECT tianli_school_id, COUNT(DISTINCT tianli_user_id) as count'
+                f' GROUP BY tianli_school_id'
+            )
+            queries.append({
+                "refId": key,
+                "datasource": SLS_DATASOURCE,
+                "query": query,
+                "type": "logstore",
+                "logstore": "nginx-ingress",
+            })
+
+        import urllib.request
+        payload = {"queries": queries, "from": str(s_ms), "to": str(e_ms)}
+        try:
+            req = urllib.request.Request(
+                f"{GRAFANA_BASE}/api/ds/query",
+                data=json.dumps(payload).encode(),
+                headers={**auth_headers, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode())
+
+            # 提取各模块的学校活跃数
+            module_active = {}
+            for ref_id, ref_data in data.get("results", {}).items():
+                school_map = {}
+                for frame in ref_data.get("frames", []):
+                    fields = frame.get("schema", {}).get("fields", [])
+                    values = frame.get("data", {}).get("values", [])
+                    if len(fields) >= 2 and len(values) >= 2:
+                        for i in range(len(values[0])):
+                            sid = str(values[0][i])
+                            cnt = int(values[1][i]) if values[1][i] else 0
+                            if sid:
+                                school_map[sid] = school_map.get(sid, 0) + cnt
+                module_active[ref_id] = school_map
+            return module_active
+        except Exception as e:
+            logger.warning("[%s] SLS KPI 查询失败: %s", label, e)
+            return None
+
+    # 并发查询 3 个时段
+    import concurrent.futures
+    results = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {}
+        for label, (s_dt, e_dt) in periods.items():
+            futures[pool.submit(_query_one, label, s_dt, e_dt)] = label
+        for f in concurrent.futures.as_completed(futures):
+            label = futures[f]
+            try:
+                results[label] = f.result()
+            except Exception:
+                results[label] = None
+
+    # 从 metabase.db 获取学校数据
+    conn = None
+    schools_info = {}
+    try:
+        conn = _get_mb_conn()
+        school_rows = conn.execute("""
+            SELECT DISTINCT CAST(school_id AS TEXT) AS sid, school_name
+            FROM teacher_base WHERE state = 1
+              AND school_name IS NOT NULL AND school_name != ''
+        """).fetchall()
+        for s in school_rows:
+            sid = s["sid"]
+            total = conn.execute(
+                "SELECT COUNT(DISTINCT teacher_id) AS cnt FROM teacher_base WHERE CAST(school_id AS TEXT) = ? AND state = 1",
+                [sid]
+            ).fetchone()["cnt"]
+            if total > 0:
+                schools_info[sid] = {"school": s["school_name"], "total_teachers": total}
+    finally:
+        if conn:
+            conn.close()
+
+    # 计算每个时段的 KPI 汇总
+    def _compute_kpi(module_active):
+        if not module_active:
+            return {"total_teachers": 0, "daily_active": 0, "weekly_active": 0, "monthly_active": 0, "total_hw": 0}
+        total_teachers = sum(s["total_teachers"] for s in schools_info.values())
+        # overall 模块的活跃人数作为日活
+        daily = len(set().union(*[module_active.get("overall", {}).keys()]))
+        # 实际上需要用 active count 总和
+        daily_active = sum(module_active.get("overall", {}).values())
+        return {
+            "total_teachers": total_teachers,
+            "daily_active": daily_active,
+            "weekly_active": 0,  # SLS 不直接提供周活
+            "monthly_active": 0,  # SLS 不直接提供月活
+            "total_hw": 0,
+        }
+
+    # 直接使用 module-usage API 获取完整数据（包含 D21 的日活/周活/月活）
+    # 但为了速度，这里用 SLS 的 overall 模块作为日活近似值
+    cur_data = results.get("cur")
+    tb_data = results.get("tb")
+    hb_data = results.get("hb")
+
+    def _sum_overall(ma):
+        if not ma:
+            return 0
+        return sum(ma.get("overall", {}).values())
+
+    cur_daily = _sum_overall(cur_data)
+    tb_daily = _sum_overall(tb_data)
+    hb_daily = _sum_overall(hb_data)
+    total_teachers = sum(s["total_teachers"] for s in schools_info.values())
+
+    # 返回格式与 extractKPIs 兼容
+    return jsonify({
+        "current": {
+            "n": len(schools_info),
+            "totalTeachers": total_teachers,
+            "dailyUV": cur_daily,
+            "weeklyActive": 0,
+            "monthlyUV": 0,
+            "totalHW": 0,
+        },
+        "tongbi": {
+            "dailyUV": tb_daily,
+        },
+        "huanbi": {
+            "dailyUV": hb_daily,
+        },
+        "source": "sls",
+    })
 
 
 @charts_bp.route("/api/charts/module-usage")
