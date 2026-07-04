@@ -1,0 +1,47 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# 配置文件（含密码等敏感信息）
+config/config.yaml
+
+# 数据库文件
+data/*.db
+data/downloads/
+data/exports/
+data/*.csv
+
+# 日志
+logs/*.log
+
+# 虚拟环境
+.env
+.venv/
+venv/
+env/
+
+# IDE 设置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 大文件 / 临时文件
+*.exe
+*.zip
+*.tar.gz
+*.xlsx
+probe_result.txt
+query_combined.txt
+query_result.txt
+test_import.txt
+_db_tmp.txt
+debug_panels.py
+
+# 备份文件
+*.bak_*

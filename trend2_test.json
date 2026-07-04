@@ -1,0 +1,19 @@
+{
+  "chart_type": "bar",
+  "datasets": [
+    {
+      "backgroundColor": "rgb(99,102,241)",
+      "borderColor": "rgb(99,102,241)",
+      "borderRadius": 4,
+      "borderWidth": 2,
+      "data": [],
+      "fill": false,
+      "label": "\u65e5\u6d3b\u4eba\u6570",
+      "pointHoverRadius": 0,
+      "pointRadius": 0,
+      "tension": 0
+    }
+  ],
+  "granularity": "month",
+  "labels": []
+}

@@ -1,0 +1,474 @@
+{% extends "base.html" %}
+{% block title %}历史记录 - 数据采集工具{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>历史记录</h1>
+</div>
+
+<div class="mode-tabs">
+    <button class="mode-tab active" data-mode="weekly" onclick="switchHistoryMode('weekly')">周表记录</button>
+    <button class="mode-tab" data-mode="monthly" onclick="switchHistoryMode('monthly')">月表记录</button>
+</div>
+
+<!-- ===== 周表筛选 ===== -->
+<div id="weeklyFilterBar" class="filter-bar">
+    <div class="filter-group">
+        <label>年份 <span class="required-mark">*</span></label>
+        <select id="filterYear">
+            {% for y in range(current_year, current_year - 2, -1) %}
+            <option value="{{ y }}" {% if y == current_year %}selected{% endif %}>{{ y }}年</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>月份</label>
+        <select id="filterMonth" onchange="onFilterMonthChange()">
+            <option value="">全部</option>
+            {% for m in range(1, 13) %}
+            <option value="{{ m }}">{{ m }}月</option>
+            {% endfor %}
+            <option value="other">其他</option>
+        </select>
+    </div>
+    <div class="filter-group" id="filterWeekGroup">
+        <label>周次</label>
+        <select id="filterWeekInMonth">
+            <option value="">全部</option>
+            {% for w in range(1, 6) %}
+            <option value="{{ w }}">第{{ w }}周</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group" id="filterWeekCustomGroup" style="display:none">
+        <label>周次名称</label>
+        <input type="text" id="filterWeekCustom" placeholder="输入旧格式周次名称" class="filter-week-custom">
+    </div>
+    <div class="filter-group">
+        <label>学校</label>
+        <select id="filterSchool">
+            <option value="">全部</option>
+            {% for school in schools %}
+            <option value="{{ school.name }}">{{ school.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button class="btn btn-secondary" onclick="queryWeekly()">查询</button>
+    <button class="btn btn-success" id="exportBtn" disabled onclick="exportWeekly()">导出 Excel</button>
+</div>
+
+<!-- ===== 月表筛选 ===== -->
+<div id="monthlyFilterBar" class="filter-bar" style="display:none">
+    <div class="filter-group">
+        <label>年份 <span class="required-mark">*</span></label>
+        <select id="mFilterYear">
+            {% for y in range(current_year, current_year - 2, -1) %}
+            <option value="{{ y }}" {% if y == current_year %}selected{% endif %}>{{ y }}年</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>月次</label>
+        <select id="mFilterMonth">
+            <option value="">全部</option>
+            <option value="一月">一月</option><option value="二月">二月</option>
+            <option value="三月">三月</option><option value="四月">四月</option>
+            <option value="五月">五月</option><option value="六月">六月</option>
+            <option value="七月">七月</option><option value="八月">八月</option>
+            <option value="九月">九月</option><option value="十月">十月</option>
+            <option value="十一月">十一月</option><option value="十二月">十二月</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>学校</label>
+        <select id="mFilterSchool">
+            <option value="">全部</option>
+            {% for school in schools %}
+            <option value="{{ school.name }}">{{ school.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button class="btn btn-secondary" onclick="queryMonthly()">查询</button>
+    <button class="btn btn-success" id="mExportBtn" disabled onclick="exportMonthly()">导出 Excel</button>
+</div>
+
+<div id="resultCount" class="result-count" style="display:none"></div>
+<div id="historyTable" class="table-container">
+    <div class="empty-state"><p>请选择筛选条件后查询</p></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _currentMode = 'weekly';
+let _monthlyRecords = [];
+const _schoolPalette = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ef4444','#06b6d4'];
+const _schoolNames = [{% for s in schools %}'{{ s.name }}'{% if not loop.last %},{% endif %}{% endfor %}];
+function getSchoolColor(name) {
+    const idx = _schoolNames.indexOf(name);
+    return idx >= 0 ? _schoolPalette[idx % 6] : _schoolPalette[0];
+}
+const _weekColors = ['#d97706','#2563eb'];
+const _weekColorMap = {};
+let _weekColorIdx = 0;
+function getWeekColor(val) {
+    if (!_weekColorMap[val]) { _weekColorMap[val] = _weekColors[_weekColorIdx % 2]; _weekColorIdx++; }
+    return _weekColorMap[val];
+}
+
+function switchHistoryMode(mode) {
+    _currentMode = mode;
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.mode-tab[data-mode="${mode}"]`).classList.add('active');
+    document.getElementById('weeklyFilterBar').style.display = (mode === 'weekly') ? '' : 'none';
+    document.getElementById('monthlyFilterBar').style.display = (mode === 'monthly') ? '' : 'none';
+    document.getElementById('resultCount').style.display = 'none';
+    document.getElementById('historyTable').innerHTML = '<div class="empty-state"><p>请选择筛选条件后查询</p></div>';
+}
+
+function onFilterMonthChange() {
+    const month = document.getElementById('filterMonth').value;
+    const isOther = (month === 'other');
+    const isEmpty = (month === '');
+    document.getElementById('filterWeekGroup').style.display = (isOther || isEmpty) ? 'none' : '';
+    document.getElementById('filterWeekCustomGroup').style.display = isOther ? '' : 'none';
+}
+
+/* ===== 周表查询 ===== */
+function buildWeeklyQueryParams() {
+    const year = document.getElementById('filterYear').value;
+    const month = document.getElementById('filterMonth').value;
+    const school = document.getElementById('filterSchool').value;
+    const params = new URLSearchParams({year});
+    if (month && month !== 'other') {
+        const week = document.getElementById('filterWeekInMonth').value;
+        if (week) params.set('week_number', `${month}月第${week}周`);
+        else params.set('month_prefix', `${month}月`);
+    } else if (month === 'other') {
+        const custom = document.getElementById('filterWeekCustom').value.trim();
+        if (custom) params.set('week_number', custom);
+    }
+    if (school) params.set('school_name', school);
+    return params;
+}
+
+function queryWeekly() {
+    const params = buildWeeklyQueryParams();
+    fetch(`/api/export/preview?${params}`)
+        .then(r => r.json())
+        .then(data => {
+            renderWeeklyTable(data.records);
+            document.getElementById('exportBtn').disabled = data.records.length === 0;
+        })
+        .catch(err => {
+            document.getElementById('historyTable').innerHTML =
+                `<div class="empty-state"><p>查询失败: ${err.message}</p></div>`;
+            document.getElementById('resultCount').style.display = 'none';
+        });
+}
+
+function renderWeeklyTable(records) {
+    const container = document.getElementById('historyTable');
+    const countEl = document.getElementById('resultCount');
+    if (!records || records.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>没有找到数据</p></div>';
+        countEl.style.display = 'none';
+        return;
+    }
+    countEl.textContent = `共 ${records.length} 条周表记录`;
+    countEl.style.display = 'block';
+    const dv = (v) => v || '<span class="cell-empty">-</span>';
+    let html = `<div class="table-wrapper"><div class="table-container"><table class="data-table" id="histWeeklyTable">
+        <thead><tr>
+            <th>学校</th><th>周次</th><th>整体使用率</th><th>整体集备</th>
+            <th>级部集备</th><th>学部集备</th><th>作业次数</th>
+            <th>活跃教师</th><th>总教师</th><th>整体活跃度</th><th>活跃比例</th>
+            <th>状态</th><th>采集时间</th><th></th>
+        </tr></thead><tbody>`;
+    records.forEach((r, i) => {
+        const t = r.collected_at ? r.collected_at.replace('T',' ').substring(0,16) : '-';
+        const activeText = r.weekly_active_teachers || '-';
+        html += `<tr class="data-row" data-idx="${i}">
+            <td><span class="cell-school" style="--school-color:${getSchoolColor(r.school_name)}">${r.school_name}</span></td>
+            <td><span class="cell-week" style="background:${getWeekColor(r.week_number)}12;color:${getWeekColor(r.week_number)};border:1px solid ${getWeekColor(r.week_number)}30">${r.week_number}</span></td>
+            <td class="cell-num">${dv(r.overall_usage_rate)}</td>
+            <td class="cell-num">${dv(r.overall_jibei)}</td>
+            <td class="cell-num">${r.grade_jibei || '-'}</td>
+            <td class="cell-num">${r.department_jibei || '-'}</td>
+            <td class="cell-num">${dv(r.homework_count)}</td>
+            <td class="cell-num">${activeText}</td>
+            <td class="cell-num">${r.weekly_total_teachers || '-'}</td>
+            <td class="cell-num">${r.weekly_overall_activity || '-'}</td>
+            <td class="cell-num">${r.weekly_active_ratio || '-'}</td>
+            <td><span class="status-badge status-${r.status}">${r.status}</span></td>
+            <td><span class="cell-time">${t}</span></td>
+            <td><button class="btn-expand" onclick="toggleDetail(this)">&#9660;</button></td>
+        </tr>`;
+        html += `<tr class="expand-row" style="display:none">
+            <td colspan="14"><div class="history-progress-panel">${buildProgressPanel(r)}</div></td>
+        </tr>`;
+    });
+    html += '</tbody></table></div>';
+    html += '<div class="pagination-bar" id="histPagination"></div></div>';
+    container.innerHTML = html;
+    initHistoryPagination('histWeeklyTable', 'histPagination', 20);
+}
+
+function buildProgressPanel(record) {
+    const platforms = ['lida', 'grafana', 'main_site'];
+    const platformLabels = {lida: 'Lida', grafana: 'Grafana', main_site: '主站'};
+    const errMsg = record.error_message || '';
+    const failedPlatforms = {};
+    if (errMsg) {
+        errMsg.split('; ').forEach(part => {
+            const match = part.trim().match(/^(\w+):\s*(.+)/);
+            if (match) failedPlatforms[match[1]] = match[2];
+        });
+    }
+    // Parse platform_elapsed JSON
+    let elapsedMap = {};
+    try {
+        if (record.platform_elapsed) elapsedMap = JSON.parse(record.platform_elapsed);
+    } catch(e) {}
+    let html = '';
+    platforms.forEach(p => {
+        const label = platformLabels[p] || p;
+        const elapsed = elapsedMap[p] ? `<span class="progress-elapsed">${elapsedMap[p]}s</span>` : '';
+        if (failedPlatforms[p]) {
+            html += `<div class="progress-item progress-failed">
+                <span class="icon-fail">&#10008;</span><span>${label} - ${failedPlatforms[p]}</span>${elapsed}</div>`;
+        } else {
+            html += `<div class="progress-item progress-completed">
+                <span class="icon-ok">&#10004;</span><span>${label} - 采集完成</span>${elapsed}</div>`;
+        }
+    });
+    const status = record.status;
+    if (status === 'success') html += '<div class="progress-summary summary-success">所有平台采集完成</div>';
+    else if (status === 'partial') html += '<div class="progress-summary summary-partial">采集部分完成</div>';
+    else html += '<div class="progress-summary summary-failed">采集全部失败</div>';
+    return html;
+}
+
+function toggleDetail(button) {
+    const dataRow = button.closest('tr');
+    const expandRow = dataRow.nextElementSibling;
+    if (expandRow.style.display === 'none') {
+        expandRow.style.display = '';
+        button.innerHTML = '&#9650;';
+        button.classList.add('expanded');
+        dataRow.classList.add('expanded');
+    } else {
+        expandRow.style.display = 'none';
+        button.innerHTML = '&#9660;';
+        button.classList.remove('expanded');
+        dataRow.classList.remove('expanded');
+    }
+}
+
+/* ===== History Pagination (20 per page) ===== */
+let _histPage = 1;
+function initHistoryPagination(tableId, pagId, pageSize) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const dataRows = Array.from(table.querySelectorAll('tbody tr.data-row'));
+    if (dataRows.length <= pageSize) {
+        const el = document.getElementById(pagId);
+        if (el) el.style.display = 'none';
+        return;
+    }
+    _histPage = 1;
+    renderHistoryPage(tableId, pagId, pageSize);
+}
+function renderHistoryPage(tableId, pagId, pageSize) {
+    const table = document.getElementById(tableId);
+    const allRows = Array.from(table.querySelectorAll('tbody tr'));
+    const dataRows = Array.from(table.querySelectorAll('tbody tr.data-row'));
+    const totalPages = Math.ceil(dataRows.length / pageSize);
+    const page = _histPage;
+    allRows.forEach(r => r.style.display = 'none');
+    dataRows.forEach((row, i) => {
+        const show = (i >= (page-1)*pageSize && i < page*pageSize);
+        row.style.display = show ? '' : 'none';
+        const expandRow = row.nextElementSibling;
+        if (expandRow && expandRow.classList.contains('expand-row') && !show) {
+            expandRow.style.display = 'none';
+        }
+    });
+    const pagEl = document.getElementById(pagId);
+    const start = (page-1)*pageSize + 1;
+    const end = Math.min(page*pageSize, dataRows.length);
+    let h = `<span class="page-info">显示 ${start}-${end} 条，共 ${dataRows.length} 条</span>`;
+    h += '<span class="page-controls">';
+    h += `<button class="page-btn" onclick="goHistPage('${tableId}','${pagId}',${pageSize},1)" ${page<=1?'disabled':''}>首页</button>`;
+    h += `<button class="page-btn" onclick="goHistPage('${tableId}','${pagId}',${pageSize},${page-1})" ${page<=1?'disabled':''}>上一页</button>`;
+    const sP = Math.max(1, page-2), eP = Math.min(totalPages, page+2);
+    for (let p = sP; p <= eP; p++) {
+        h += `<button class="page-btn${p===page?' active':''}" onclick="goHistPage('${tableId}','${pagId}',${pageSize},${p})">${p}</button>`;
+    }
+    h += `<button class="page-btn" onclick="goHistPage('${tableId}','${pagId}',${pageSize},${page+1})" ${page>=totalPages?'disabled':''}>下一页</button>`;
+    h += `<button class="page-btn" onclick="goHistPage('${tableId}','${pagId}',${pageSize},${totalPages})" ${page>=totalPages?'disabled':''}>末页</button>`;
+    h += '</span>';
+    pagEl.innerHTML = h;
+}
+function goHistPage(tableId, pagId, pageSize, p) {
+    _histPage = p;
+    renderHistoryPage(tableId, pagId, pageSize);
+}
+
+function exportWeekly() {
+    const params = buildWeeklyQueryParams();
+    window.location.href = `/api/export/weekly?${params}`;
+}
+
+/* ===== 月表查询 ===== */
+function buildMonthlyQueryParams() {
+    const year = document.getElementById('mFilterYear').value;
+    const monthNumber = document.getElementById('mFilterMonth').value;
+    const school = document.getElementById('mFilterSchool').value;
+    const params = new URLSearchParams({year});
+    if (monthNumber) params.set('month_number', monthNumber);
+    if (school) params.set('school_name', school);
+    return params;
+}
+
+function queryMonthly() {
+    const params = buildMonthlyQueryParams();
+    fetch(`/api/history/monthly?${params}`)
+        .then(r => r.json())
+        .then(data => {
+            _monthlyRecords = data.records || [];
+            renderMonthlyTable(data.records);
+            document.getElementById('mExportBtn').disabled = (data.records || []).length === 0;
+        })
+        .catch(err => {
+            document.getElementById('historyTable').innerHTML =
+                `<div class="empty-state"><p>查询失败: ${err.message}</p></div>`;
+            document.getElementById('resultCount').style.display = 'none';
+        });
+}
+
+function isAnomaly(r) {
+    if (!r.daily_active_ratio || !r.weekly_active_ratio || !r.monthly_active_ratio) return false;
+    const d = parseFloat(r.daily_active_ratio.replace('%',''));
+    const w = parseFloat(r.weekly_active_ratio.replace('%',''));
+    const m = parseFloat(r.monthly_active_ratio.replace('%',''));
+    return (d > 0 && w > 0 && m > 0 && !(d > w && w > m));
+}
+
+function renderMonthlyTable(records) {
+    const container = document.getElementById('historyTable');
+    const countEl = document.getElementById('resultCount');
+    if (!records || records.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>没有找到月度数据</p></div>';
+        countEl.style.display = 'none';
+        return;
+    }
+    countEl.textContent = `共 ${records.length} 条月表记录`;
+    countEl.style.display = 'block';
+    const dv = (v) => v || '<span class="cell-empty">-</span>';
+
+    let html = `<div class="table-wrapper monthly-compact"><div class="table-container"><table class="data-table" id="histMonthlyTable">
+        <thead>
+            <tr class="main-header">
+                <th rowspan="2">学校</th><th rowspan="2">月次</th>
+                <th colspan="4">平台使用率</th>
+                <th colspan="4">集备</th>
+                <th colspan="4">组卷</th>
+                <th colspan="3">活跃度占比</th>
+                <th rowspan="2">作业次数</th>
+                <th rowspan="2">状态</th><th rowspan="2">采集时间</th><th rowspan="2"></th>
+            </tr>
+            <tr class="sub-header">
+                <th>整体</th><th>高中</th><th>初中</th><th>小学</th>
+                <th>整体</th><th>高中</th><th>初中</th><th>小学</th>
+                <th>整体</th><th>高中</th><th>初中</th><th>小学</th>
+                <th>日活</th><th>周活</th><th>月活</th>
+            </tr>
+        </thead><tbody>`;
+
+    records.forEach((r, i) => {
+        const t = r.collected_at ? r.collected_at.replace('T',' ').substring(0,16) : '-';
+        const anomaly = isAnomaly(r);
+        const aCls = anomaly ? ' cell-anomaly' : '';
+        const statusHtml = anomaly
+            ? '<span class="status-badge status-anomaly">数据异常</span>'
+            : `<span class="status-badge status-${r.status}">${r.status}</span>`;
+        html += `<tr class="data-row" data-idx="${i}">
+            <td><span class="cell-school" style="--school-color:${getSchoolColor(r.school_name)}">${r.school_name}</span></td>
+            <td><span class="cell-week" style="background:${getWeekColor(r.month_number)}12;color:${getWeekColor(r.month_number)};border:1px solid ${getWeekColor(r.month_number)}30">${r.month_number}</span></td>
+            <td class="cell-num">${dv(r.platform_usage)}</td>
+            <td class="cell-num">${dv(r.platform_usage_hs)}</td>
+            <td class="cell-num">${dv(r.platform_usage_ms)}</td>
+            <td class="cell-num">${dv(r.platform_usage_ps)}</td>
+            <td class="cell-num">${dv(r.overall_jibei)}</td>
+            <td class="cell-num">${dv(r.jibei_hs)}</td>
+            <td class="cell-num">${dv(r.jibei_ms)}</td>
+            <td class="cell-num">${dv(r.jibei_ps)}</td>
+            <td class="cell-num">${dv(r.zujuan)}</td>
+            <td class="cell-num">${dv(r.zujuan_hs)}</td>
+            <td class="cell-num">${dv(r.zujuan_ms)}</td>
+            <td class="cell-num">${dv(r.zujuan_ps)}</td>
+            <td class="cell-num${aCls}">${dv(r.daily_active_ratio)}</td>
+            <td class="cell-num${aCls}">${dv(r.weekly_active_ratio)}</td>
+            <td class="cell-num${aCls}">${dv(r.monthly_active_ratio)}</td>
+            <td class="cell-num">${dv(r.homework_count)}</td>
+            <td>${statusHtml}</td>
+            <td><span class="cell-time">${t}</span></td>
+            <td><button class="btn-expand" onclick="toggleDetail(this)">&#9660;</button></td>
+        </tr>`;
+        html += `<tr class="expand-row" style="display:none">
+            <td colspan="21"><div class="history-progress-panel">${buildMonthlyProgress(r, anomaly)}</div></td>
+        </tr>`;
+    });
+    html += '</tbody></table></div>';
+    html += '<div class="pagination-bar" id="histPagination"></div></div>';
+    container.innerHTML = html;
+    initHistoryPagination('histMonthlyTable', 'histPagination', 20);
+}
+
+function buildMonthlyProgress(record, anomaly) {
+    const platforms = ['lida', 'grafana', 'main_site'];
+    const platformLabels = {lida: 'Lida', grafana: 'Grafana', main_site: '主站'};
+    const errMsg = record.error_message || '';
+    const failedPlatforms = {};
+    if (errMsg) {
+        errMsg.split('; ').forEach(part => {
+            const match = part.trim().match(/^(\w+):\s*(.+)/);
+            if (match) failedPlatforms[match[1]] = match[2];
+        });
+    }
+    let elapsedMap = {};
+    try {
+        if (record.platform_elapsed) elapsedMap = JSON.parse(record.platform_elapsed);
+    } catch(e) {}
+    let html = '';
+    platforms.forEach(p => {
+        const label = platformLabels[p] || p;
+        const elapsed = elapsedMap[p] ? `<span class="progress-elapsed">${elapsedMap[p]}s</span>` : '';
+        if (failedPlatforms[p]) {
+            html += `<div class="progress-item progress-failed">
+                <span class="icon-fail">&#10008;</span><span>${label} - ${failedPlatforms[p]}</span>${elapsed}</div>`;
+        } else {
+            html += `<div class="progress-item progress-completed">
+                <span class="icon-ok">&#10004;</span><span>${label} - 采集完成</span>${elapsed}</div>`;
+        }
+    });
+    if (anomaly) {
+        html += `<div class="progress-item progress-failed">
+            <span class="icon-fail">!</span>
+            <span>数据异常: 日活(${record.daily_active_ratio})/周活(${record.weekly_active_ratio})/月活(${record.monthly_active_ratio}) 不满足递减关系</span></div>`;
+    }
+    const status = record.status;
+    if (anomaly) html += '<div class="progress-summary summary-failed">数据异常: 活跃度不满足日活&gt;周活&gt;月活</div>';
+    else if (status === 'success') html += '<div class="progress-summary summary-success">所有平台采集完成</div>';
+    else if (status === 'partial') html += '<div class="progress-summary summary-partial">采集部分完成</div>';
+    else html += '<div class="progress-summary summary-failed">采集全部失败</div>';
+    return html;
+}
+
+function exportMonthly() {
+    const params = buildMonthlyQueryParams();
+    window.location.href = `/api/export/monthly?${params}`;
+}
+</script>
+{% endblock %}

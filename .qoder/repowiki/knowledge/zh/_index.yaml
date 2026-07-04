@@ -1,0 +1,15 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: Q0DeR-MaG1C-BrAnCh-Fo2-NoN-GiT-Or-No-C0MmIt
+nodes_managed: true
+exported_at: "2026-07-03T12:47:15Z"
+modules:
+    "":
+        dir_name: 教育平台多源数据采集与可视化系统
+        title: 教育平台多源数据采集与可视化系统
+        scope: []
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

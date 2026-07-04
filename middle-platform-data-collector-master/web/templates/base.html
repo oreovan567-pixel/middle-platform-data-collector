@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}学校中台分析平台{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+
+<!-- ===== 左侧边栏 ===== -->
+<aside class="sidebar" id="sidebar">
+    <!-- 用户区 -->
+    {% if current_user %}
+    <div class="user-menu">
+        <div class="user-avatar">{{ current_user.username[-4:] if current_user.username else '校' }}</div>
+        <div class="user-menu-text">
+            <div class="user-menu-name">{{ current_user.username or '用户' }}</div>
+            <div class="user-menu-role">{% if current_user.is_super_admin %}超级管理员{% elif current_user.can_manage_schools %}管理员{% else %}普通用户{% endif %}</div>
+        </div>
+        <div class="user-dropdown">
+            <button class="user-dropdown-item" onclick="event.stopPropagation();openModal('passwordModal')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                修改密码
+            </button>
+            <div class="user-dropdown-divider"></div>
+            <a class="user-dropdown-item" href="/logout">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                退出登录
+            </a>
+        </div>
+    </div>
+    {% else %}
+    <div class="sidebar-brand">
+        <div class="sidebar-logo">校</div>
+        <div class="sidebar-brand-text">
+            <div class="sidebar-title">学校中台分析平台</div>
+            <div class="sidebar-subtitle">多所学校数据</div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 导航菜单 -->
+    <nav class="sidebar-nav">
+        <a href="/" class="sidebar-link {% if request.path == '/' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            <span>全校总览大盘</span>
+        </a>
+        <a href="/comparison" class="sidebar-link {% if request.path == '/comparison' %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/></svg>
+            <span>多校对比分析</span>
+        </a>
+        <a href="/school" class="sidebar-link {% if request.path.startswith('/school') %}active{% endif %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            <span>单校详情分析</span>
+        </a>
+
+        <div class="sidebar-group-title">通用功能</div>
+
+        <button class="sidebar-link sidebar-btn" onclick="openModal('exportModal')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>导出报表</span>
+        </button>
+        <button class="sidebar-link sidebar-btn" onclick="openModal('thresholdModal')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>预警阈值配置</span>
+        </button>
+        <button class="sidebar-link sidebar-btn" onclick="openModal('dictModal')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+            <span>指标说明字典</span>
+        </button>
+        {% if current_user and current_user.can_manage_schools %}
+        <button class="sidebar-link sidebar-btn" onclick="openSchoolMgmt()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span>学校管理</span>
+        </button>
+        {% endif %}
+    </nav>
+
+    <!-- 底部 -->
+    <div class="sidebar-footer">
+        <div class="sidebar-footer-label">数据更新</div>
+        <div class="sidebar-footer-time" id="sidebarUpdateTime">--</div>
+        <button class="sidebar-sync-btn" onclick="syncData()">手动同步</button>
+    </div>
+</aside>
+
+<!-- ===== 主内容区 ===== -->
+<main class="main-content">
+    {% block content %}{% endblock %}
+</main>
+
+<!-- ===== 模态对话框 ===== -->
+
+<!-- 修改密码 -->
+<div class="modal-overlay" id="passwordModal" onclick="if(event.target===this)closeModal('passwordModal')">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div>
+                <h3>修改密码</h3>
+                <p class="modal-desc">请输入旧密码并设置新密码</p>
+            </div>
+            <button class="modal-close" onclick="closeModal('passwordModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="pwdError" style="display:none;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;text-align:center"></div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px">旧密码</label>
+                <input type="password" id="pwdOld" class="pwd-input" placeholder="请输入旧密码">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px">新密码</label>
+                <input type="password" id="pwdNew" class="pwd-input" placeholder="请输入新密码">
+            </div>
+            <div class="form-group" style="margin-bottom:6px">
+                <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px">确认新密码</label>
+                <input type="password" id="pwdConfirm" class="pwd-input" placeholder="请再次输入新密码">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-outline" onclick="closeModal('passwordModal')">取消</button>
+            <button class="btn-primary" id="pwdSubmitBtn" onclick="changePassword()">确认修改</button>
+        </div>
+    </div>
+</div>
+
+<!-- 导出报表 -->
+<div class="modal-overlay" id="exportModal" onclick="if(event.target===this)closeModal('exportModal')">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div>
+                <h3>导出报表</h3>
+                <p class="modal-desc">选择导出格式，当前筛选条件下的数据将被导出</p>
+            </div>
+            <button class="modal-close" onclick="closeModal('exportModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="export-tabs">
+                <button class="export-tab active" onclick="switchExportTab(this,'excel')">Excel</button>
+                <button class="export-tab" onclick="switchExportTab(this,'png')">图表PNG</button>
+                <button class="export-tab" onclick="switchExportTab(this,'summary')">汇总报表</button>
+            </div>
+            <div class="export-content" id="exportTabExcel">
+                <div class="export-option">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40" style="color:var(--primary)"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    <div>
+                        <div class="export-option-title">Excel 数据表格</div>
+                        <div class="export-option-desc">导出当前筛选条件下的全部学校明细数据</div>
+                    </div>
+                </div>
+                <button class="btn-primary full-w" onclick="doExportAction('excel')">导出 Excel</button>
+            </div>
+            <div class="export-content" id="exportTabPng" style="display:none">
+                <div class="export-option">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40" style="color:var(--primary)"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <div>
+                        <div class="export-option-title">图表 PNG</div>
+                        <div class="export-option-desc">导出当前页面的图表为PNG图片</div>
+                    </div>
+                </div>
+                <button class="btn-primary full-w" onclick="doExportAction('png')">导出 PNG</button>
+            </div>
+            <div class="export-content" id="exportTabSummary" style="display:none">
+                <div class="export-option">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="40" height="40" style="color:var(--primary)"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                    <div>
+                        <div class="export-option-title">汇总报表</div>
+                        <div class="export-option-desc">导出包含汇总统计的综合报表</div>
+                    </div>
+                </div>
+                <button class="btn-primary full-w" onclick="doExportAction('summary')">导出汇总报表</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 预警阈值配置 -->
+<div class="modal-overlay" id="thresholdModal" onclick="if(event.target===this)closeModal('thresholdModal')">
+    <div class="modal-card">
+        <div class="modal-header">
+            <div>
+                <h3>预警阈值配置</h3>
+                <p class="modal-desc">设置各指标的红黄预警阈值，低于阈值的数据将自动高亮</p>
+            </div>
+            <button class="modal-close" onclick="closeModal('thresholdModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="threshold-group">
+                <div class="threshold-label">平台使用率 (%)</div>
+                <div class="threshold-inputs">
+                    <label>黄色预警 &lt; <input type="number" id="th_usage_warn" value="15" class="threshold-input"></label>
+                    <label>红色预警 &lt; <input type="number" id="th_usage_danger" value="10" class="threshold-input"></label>
+                </div>
+            </div>
+            <div class="threshold-group">
+                <div class="threshold-label">整体活跃度 (%)</div>
+                <div class="threshold-inputs">
+                    <label>黄色预警 &lt; <input type="number" id="th_activity_warn" value="5" class="threshold-input"></label>
+                    <label>红色预警 &lt; <input type="number" id="th_activity_danger" value="2" class="threshold-input"></label>
+                </div>
+            </div>
+            <div class="threshold-group">
+                <div class="threshold-label">整体备课率 (%)</div>
+                <div class="threshold-inputs">
+                    <label>黄色预警 &lt; <input type="number" id="th_jibei_warn" value="0.5" step="0.1" class="threshold-input"></label>
+                    <label>红色预警 &lt; <input type="number" id="th_jibei_danger" value="0.1" step="0.1" class="threshold-input"></label>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-outline" onclick="closeModal('thresholdModal')">取消</button>
+            <button class="btn-primary" onclick="saveThresholds()">保存配置</button>
+        </div>
+    </div>
+</div>
+
+<!-- 指标说明字典 -->
+<div class="modal-overlay" id="dictModal" onclick="if(event.target===this)closeModal('dictModal')">
+    <div class="modal-card modal-card-lg">
+        <div class="modal-header">
+            <div>
+                <h3>指标说明字典</h3>
+                <p class="modal-desc">平台所有业务指标的定义与计算公式</p>
+            </div>
+            <button class="modal-close" onclick="closeModal('dictModal')">&times;</button>
+        </div>
+        <div class="modal-body dict-body">
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">整体使用率</span><span class="dict-tag">平台使用率</span><span class="dict-unit">%</span></div>
+                <div class="dict-desc">使用教师数 / 总教师数 × 100%</div>
+            </div>
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">整体备课率</span><span class="dict-tag">集备板块</span><span class="dict-unit">%</span></div>
+                <div class="dict-desc">参与集备教师数 / 总教师数 × 100%</div>
+            </div>
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">作业次数</span><span class="dict-tag">作业板块</span><span class="dict-unit">次</span></div>
+                <div class="dict-desc">统计周期内教师发布作业的总次数</div>
+            </div>
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">本周活跃教师</span><span class="dict-tag">活跃度</span><span class="dict-unit">人</span></div>
+                <div class="dict-desc">统计周期内登录并使用平台的教师人数</div>
+            </div>
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">整体活跃度</span><span class="dict-tag">活跃度</span><span class="dict-unit">%</span></div>
+                <div class="dict-desc">活跃教师数 / 总使用教师数 × 100%</div>
+            </div>
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">高中/初中/小学使用率</span><span class="dict-tag">学段</span><span class="dict-unit">%</span></div>
+                <div class="dict-desc">各学段使用教师数 / 该学段总教师数 × 100%</div>
+            </div>
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">学部/级部备课率</span><span class="dict-tag">集备</span><span class="dict-unit">%</span></div>
+                <div class="dict-desc">学部/级部参与备课教师数 / 对应教师总数 × 100%</div>
+            </div>
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">周人均作业次数</span><span class="dict-tag">作业</span><span class="dict-unit">次</span></div>
+                <div class="dict-desc">作业总次数 / 使用教师数</div>
+            </div>
+            <div class="dict-item">
+                <div class="dict-item-header"><span class="dict-name">周教师比例</span><span class="dict-tag">活跃度</span><span class="dict-unit">%</span></div>
+                <div class="dict-desc">本周活跃教师 / 全校教师总数 × 100%</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 学校管理 -->
+<div class="modal-overlay" id="schoolMgmtModal" onclick="if(event.target===this)closeModal('schoolMgmtModal')">
+    <div class="modal-card modal-card-lg">
+        <div class="modal-header">
+            <div>
+                <h3>学校管理</h3>
+                <p class="modal-desc">设置每所学校的负责人和优先级</p>
+            </div>
+            <button class="modal-close" onclick="closeModal('schoolMgmtModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <!-- 类型 Tab 栏 -->
+            <div class="dim-tabs" style="margin-bottom:16px" id="schoolTypeTabs">
+                <button class="dim-tab active" data-type="" onclick="switchSchoolTypeTab(this)">全部</button>
+                <button class="dim-tab" data-type="直营校" onclick="switchSchoolTypeTab(this)">直营校</button>
+                <button class="dim-tab" data-type="测试学校" onclick="switchSchoolTypeTab(this)">测试学校</button>
+                <button class="dim-tab" data-type="托管校" onclick="switchSchoolTypeTab(this)">托管校</button>
+            </div>
+            <div style="overflow-x:auto;max-height:500px;overflow-y:auto">
+                <table class="cmp-table" style="min-width:720px">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding-left:16px">学校名称</th>
+                            <th>类型</th>
+                            <th>优先级</th>
+                            <th>负责人</th>
+                            <th>账号</th>
+                        </tr>
+                    </thead>
+                    <tbody id="schoolMgmtBody">
+                        <tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:40px">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-outline" onclick="closeModal('schoolMgmtModal')">取消</button>
+            <button class="btn-primary" onclick="saveSchoolMgmt()">保存设置</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── 模态框控制 ──
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// ── 导出Tab切换 ──
+function switchExportTab(btn, tab) {
+    document.querySelectorAll('.export-tab').forEach(function(t){ t.classList.remove('active'); });
+    btn.classList.add('active');
+    document.querySelectorAll('.export-content').forEach(function(c){ c.style.display = 'none'; });
+    var el = document.getElementById('exportTab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+    if (el) el.style.display = 'block';
+}
+
+// ── 导出动作 ──
+function doExportAction(format) {
+    if (format === 'excel') {
+        window.location.href = '/api/export/csv';
+    } else {
+        alert('该格式导出功能开发中');
+    }
+    closeModal('exportModal');
+}
+
+// ── 阈值保存 ──
+function saveThresholds() {
+    var thresholds = {
+        usage_warn: document.getElementById('th_usage_warn').value,
+        usage_danger: document.getElementById('th_usage_danger').value,
+        activity_warn: document.getElementById('th_activity_warn').value,
+        activity_danger: document.getElementById('th_activity_danger').value,
+        jibei_warn: document.getElementById('th_jibei_warn').value,
+        jibei_danger: document.getElementById('th_jibei_danger').value
+    };
+    try { localStorage.setItem('alert_thresholds', JSON.stringify(thresholds)); } catch(e){}
+    closeModal('thresholdModal');
+    alert('阈值配置已保存');
+}
+
+// ── 恢复阈值 ──
+(function(){
+    try {
+        var raw = localStorage.getItem('alert_thresholds');
+        if (!raw) return;
+        var t = JSON.parse(raw);
+        if (t.usage_warn) document.getElementById('th_usage_warn').value = t.usage_warn;
+        if (t.usage_danger) document.getElementById('th_usage_danger').value = t.usage_danger;
+        if (t.activity_warn) document.getElementById('th_activity_warn').value = t.activity_warn;
+        if (t.activity_danger) document.getElementById('th_activity_danger').value = t.activity_danger;
+        if (t.jibei_warn) document.getElementById('th_jibei_warn').value = t.jibei_warn;
+        if (t.jibei_danger) document.getElementById('th_jibei_danger').value = t.jibei_danger;
+    } catch(e){}
+})();
+
+// ── 同步数据（占位） ──
+function syncData() {
+    var now = new Date();
+    document.getElementById('sidebarUpdateTime').textContent = now.toLocaleString('zh-CN');
+}
+
+// ── 初始化更新时间 ──
+(function(){
+    var now = new Date();
+    var el = document.getElementById('sidebarUpdateTime');
+    if (el) el.textContent = now.toLocaleString('zh-CN');
+})();
+
+// ── 修改密码 ──
+function changePassword() {
+    var oldPwd = document.getElementById('pwdOld').value.trim();
+    var newPwd = document.getElementById('pwdNew').value.trim();
+    var confirmPwd = document.getElementById('pwdConfirm').value.trim();
+    var errEl = document.getElementById('pwdError');
+    var btn = document.getElementById('pwdSubmitBtn');
+
+    if (!oldPwd) { errEl.textContent = '请输入旧密码'; errEl.style.display = 'block'; return; }
+    if (!newPwd) { errEl.textContent = '请输入新密码'; errEl.style.display = 'block'; return; }
+    if (newPwd.length < 6) { errEl.textContent = '新密码至少6位'; errEl.style.display = 'block'; return; }
+    if (newPwd !== confirmPwd) { errEl.textContent = '两次新密码不一致'; errEl.style.display = 'block'; return; }
+
+    errEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = '修改中...';
+
+    fetch('/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'old_password=' + encodeURIComponent(oldPwd) + '&new_password=' + encodeURIComponent(newPwd)
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+        if (data.success) {
+            errEl.style.display = 'block';
+            errEl.style.background = '#f0fdf4';
+            errEl.style.color = '#16a34a';
+            errEl.style.borderColor = '#bbf7d0';
+            errEl.textContent = '密码修改成功';
+            setTimeout(function(){ closeModal('passwordModal'); }, 1200);
+        } else {
+            errEl.style.display = 'block';
+            errEl.textContent = data.error || '修改失败';
+        }
+    })
+    .catch(function(e){
+        errEl.style.display = 'block';
+        errEl.textContent = '网络错误，请重试';
+    })
+    .finally(function(){
+        btn.disabled = false;
+        btn.textContent = '确认修改';
+    });
+}
+
+// ─ 学校管理 ──
+var _schoolMgmtData = [];
+var _schoolMgmtType = '';
+
+function switchSchoolTypeTab(btn) {
+    document.querySelectorAll('#schoolTypeTabs .dim-tab').forEach(function(t){ t.classList.remove('active'); });
+    btn.classList.add('active');
+    _schoolMgmtType = btn.getAttribute('data-type');
+    renderSchoolMgmtTable();
+}
+
+function openSchoolMgmt() {
+    _schoolMgmtType = '';
+    // 重置 Tab 为默认全部
+    var tabs = document.querySelectorAll('#schoolTypeTabs .dim-tab');
+    tabs.forEach(function(t){ t.classList.remove('active'); });
+    if (tabs.length) tabs[0].classList.add('active');
+
+    openModal('schoolMgmtModal');
+    var tbody = document.getElementById('schoolMgmtBody');
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:40px">加载中...</td></tr>';
+
+    // 拉取学校列表
+    fetch('/api/schools').then(function(r){ return r.json(); })
+    .then(function(data) {
+        _schoolMgmtData = data.schools || [];
+        renderSchoolMgmtTable();
+    })
+    .catch(function(e) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--danger);padding:40px">加载失败: ' + e.message + '</td></tr>';
+    });
+}
+
+function renderSchoolMgmtTable() {
+    var tbody = document.getElementById('schoolMgmtBody');
+    // 按类型过滤
+    var filtered = _schoolMgmtData;
+    if (_schoolMgmtType) {
+        filtered = _schoolMgmtData.filter(function(s){ return s.type === _schoolMgmtType; });
+    }
+    var html = '';
+    filtered.forEach(function(s) {
+        var p = s.priority || '中';
+        html += '<tr>';
+        html += '<td style="text-align:left;padding-left:16px;font-weight:600">' + (s.display_name || s.name) + '</td>';
+        html += '<td>' + (s.type || '未分类') + '</td>';
+        html += '<td><select data-id="' + s.id + '" class="priority-sel" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px">';
+        ['高','中','低'].forEach(function(v) {
+            html += '<option value="' + v + '"' + (v===p?' selected':'') + '>' + v + '</option>';
+        });
+        html += '</select></td>';
+        // 负责人列 - 文本输入，显示真实姓名
+        html += '<td><input type="text" data-sid="' + s.id + '" class="owner-name-inp" value="' + (s.owner_name || '') + '" placeholder="输入姓名" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;width:100px"></td>';
+        // 账号列 - 文本输入，显示手机号
+        html += '<td><input type="text" data-sid2="' + s.id + '" class="owner-phone-inp" value="' + (s.owner_phone || '') + '" placeholder="输入手机号" style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;width:120px"></td>';
+        html += '</tr>';
+    });
+    tbody.innerHTML = html || '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:40px">暂无学校数据</td></tr>';
+}
+
+function saveSchoolMgmt() {
+    // 1. 保存优先级
+    var priUpdates = [];
+    document.querySelectorAll('.priority-sel').forEach(function(sel) {
+        priUpdates.push({ school_id: parseInt(sel.getAttribute('data-id')), priority: sel.value });
+    });
+
+    // 2. 保存负责人（按姓名或手机号匹配用户）
+    var ownUpdates = [];
+    document.querySelectorAll('.owner-name-inp').forEach(function(inp) {
+        var sid = parseInt(inp.getAttribute('data-sid'));
+        var phoneInp = document.querySelector('.owner-phone-inp[data-sid2="' + sid + '"]');
+        ownUpdates.push({
+            school_id: sid,
+            owner_name: inp.value.trim(),
+            owner_phone: phoneInp ? phoneInp.value.trim() : ''
+        });
+    });
+
+    var p1 = fetch('/api/schools/batch-priority', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(priUpdates)
+    }).then(function(r){ return r.json(); });
+
+    var p2 = fetch('/api/schools/batch-owner', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ownUpdates)
+    }).then(function(r){ return r.json(); });
+
+    Promise.all([p1, p2])
+    .then(function(results) {
+        alert('已更新 ' + (results[0].updated || 0) + ' 所学校的优先级，' + (results[1].updated || 0) + ' 所学校的负责人');
+        closeModal('schoolMgmtModal');
+    })
+    .catch(function(e) { alert('保存失败: ' + e.message); });
+}
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

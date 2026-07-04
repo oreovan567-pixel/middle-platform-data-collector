@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+{% block title %}用户管理 - 数据采集工具{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>用户管理</h1>
+    <div style="display:flex;gap:10px">
+        <button class="btn btn-secondary" onclick="downloadTemplate()" style="padding:10px 20px;font-size:14px;font-weight:600">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            下载模板
+        </button>
+        <button class="btn btn-primary" onclick="showImportDialog()" style="padding:10px 20px;font-size:14px;font-weight:600">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            批量导入
+        </button>
+        <button class="btn btn-primary" onclick="showCreateUser()" style="padding:10px 24px;font-size:14px;font-weight:600">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            新建用户
+        </button>
+    </div>
+</div>
+
+<div class="card">
+    <table class="data-table" id="usersTable">
+        <thead>
+            <tr>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>Lida 账号</th>
+                <th>Grafana 账号</th>
+                <th>主站账号</th>
+                <th>分配学校</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="usersBody">
+            <tr><td colspan="7" style="text-align:center;padding:20px">加载中...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="modal-overlay" id="userModal" style="display:none" onclick="if(event.target===this)closeUserModal()">
+    <div class="modal-card" style="width:580px;max-height:90vh;overflow-y:auto">
+        <div class="modal-header">
+            <h3 id="userModalTitle">新建用户</h3>
+            <button type="button" class="btn-close" onclick="closeUserModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="userForm" onsubmit="return false">
+                <input type="hidden" id="editUserId">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>用户名 *</label>
+                        <input type="text" id="formUsername" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="toggle-group">
+                        <input type="checkbox" id="formIsAdmin">
+                        <label for="formIsAdmin">管理员权限</label>
+                    </div>
+                </div>
+                <div class="form-section-header">
+                    <h3>平台凭证</h3>
+                    <span class="section-desc">各系统登录账号</span>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Lida 用户名</label>
+                        <input type="text" id="formLidaUser" placeholder="留空则使用默认配置">
+                    </div>
+                    <div class="form-group">
+                        <label>Lida 密码</label>
+                        <div class="pwd-wrap">
+                            <input type="password" id="formLidaPwd">
+                            <button type="button" class="pwd-toggle" onclick="togglePwd('formLidaPwd',this)" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Grafana 用户名</label>
+                        <input type="text" id="formGrafanaUser" placeholder="留空则使用默认配置">
+                    </div>
+                    <div class="form-group">
+                        <label>Grafana 密码</label>
+                        <div class="pwd-wrap">
+                            <input type="password" id="formGrafanaPwd">
+                            <button type="button" class="pwd-toggle" onclick="togglePwd('formGrafanaPwd',this)" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>主站 用户名</label>
+                        <input type="text" id="formMainUser" placeholder="留空则使用默认配置">
+                    </div>
+                    <div class="form-group">
+                        <label>主站 密码</label>
+                        <div class="pwd-wrap">
+                            <input type="password" id="formMainPwd">
+                            <button type="button" class="pwd-toggle" onclick="togglePwd('formMainPwd',this)" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>分配学校（逗号分隔，留空=全部学校）</label>
+                    <input type="text" id="formSchools" placeholder="如: XX小学,YY中学">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeUserModal()">取消</button>
+            <button class="btn btn-primary" onclick="saveUser()" id="saveUserBtn">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 批量导入弹窗 -->
+<div class="modal-overlay" id="importModal" style="display:none" onclick="if(event.target===this)closeImportModal()">
+    <div class="modal-card" style="width:520px">
+        <div class="modal-header">
+            <h3>批量导入用户及学校</h3>
+            <button type="button" class="btn-close" onclick="closeImportModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom:16px;color:var(--text-secondary,#666);font-size:13px;line-height:1.7">
+                请先下载模板，按格式填写后上传。支持同时创建多个用户及其负责的学校信息。<br>
+                同一用户名填写多行即表示该用户负责多所学校。
+            </div>
+            <div style="border:2px dashed var(--border,#ddd);border-radius:12px;padding:40px 20px;text-align:center;cursor:pointer;transition:border-color 0.2s,background 0.2s"
+                 id="dropZone"
+                 onclick="document.getElementById('importFile').click()"
+                 ondragover="event.preventDefault();this.style.borderColor='var(--primary,#0891b2)';this.style.background='rgba(8,145,178,0.05)'"
+                 ondragleave="this.style.borderColor='';this.style.background=''"
+                 ondrop="event.preventDefault();handleImportFile(event.dataTransfer.files[0])">
+                <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="var(--text-4,#aaa)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <div style="font-size:14px;color:var(--text-secondary,#666)">点击选择文件或将 Excel 拖放到此处</div>
+                <div style="font-size:12px;color:var(--text-4,#999);margin-top:4px">仅支持 .xlsx 格式</div>
+                <div id="importFileName" style="margin-top:12px;font-size:13px;color:var(--primary,#0891b2);font-weight:500;display:none"></div>
+            </div>
+            <input type="file" id="importFile" accept=".xlsx" style="display:none" onchange="handleImportFile(this.files[0])">
+            <div id="importResult" style="margin-top:16px;display:none"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeImportModal()">关闭</button>
+            <button class="btn btn-primary" onclick="doImport()" id="importBtn" disabled>开始导入</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allUsers = [];
+
+async function loadUsers() {
+    try {
+        const res = await fetch('/api/users/');
+        const data = await res.json();
+        allUsers = data.users || [];
+        renderUsers();
+    } catch (e) {
+        document.getElementById('usersBody').innerHTML =
+            '<tr><td colspan="7" style="text-align:center;color:var(--danger)">加载失败</td></tr>';
+    }
+}
+
+function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderUsers() {
+    const tbody = document.getElementById('usersBody');
+    if (allUsers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:20px">暂无用户</td></tr>';
+        return;
+    }
+    tbody.innerHTML = allUsers.map(u => `
+        <tr>
+            <td><strong>${esc(u.username)}</strong></td>
+            <td>${u.is_admin ? '<span style="color:var(--primary);font-weight:500">管理员</span>' : '普通用户'}</td>
+            <td>${esc(u.lida_username) || '<span style="color:var(--text-4)">-</span>'}</td>
+            <td>${esc(u.grafana_username) || '<span style="color:var(--text-4)">-</span>'}</td>
+            <td>${esc(u.main_site_username) || '<span style="color:var(--text-4)">-</span>'}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(u.assigned_schools)}">${esc(u.assigned_schools) || '<span style="color:var(--text-4)">全部</span>'}</td>
+            <td>
+                <div class="action-group">
+                    <button class="btn btn-sm" onclick="editUser(${u.id})">编辑</button>
+                    ${u.username !== 'admin' ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id},'${esc(u.username)}')">删除</button>` : ''}
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function showCreateUser() {
+    document.getElementById('userModalTitle').textContent = '新建用户';
+    document.getElementById('editUserId').value = '';
+    document.getElementById('formUsername').value = '';
+    document.getElementById('formUsername').disabled = false;
+    document.getElementById('formIsAdmin').checked = false;
+    clearCredFields();
+    document.getElementById('formSchools').value = '';
+    document.getElementById('userModal').style.display = 'flex';
+}
+
+function clearCredFields() {
+    ['formLidaUser','formLidaPwd','formGrafanaUser','formGrafanaPwd','formMainUser','formMainPwd'].forEach(id => {
+        document.getElementById(id).value = '';
+    });
+    document.querySelectorAll('.pwd-wrap input').forEach(inp => { inp.type = 'password'; });
+    document.querySelectorAll('.pwd-toggle').forEach(btn => { btn.innerHTML = eyeOffSvg; });
+}
+
+const eyeOffSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+const eyeOnSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+
+function togglePwd(inputId, btn) {
+    const inp = document.getElementById(inputId);
+    if (inp.type === 'password') {
+        inp.type = 'text';
+        btn.innerHTML = eyeOnSvg;
+    } else {
+        inp.type = 'password';
+        btn.innerHTML = eyeOffSvg;
+    }
+}
+
+function editUser(id) {
+    const u = allUsers.find(x => x.id === id);
+    if (!u) return;
+    document.getElementById('userModalTitle').textContent = '编辑用户';
+    document.getElementById('editUserId').value = u.id;
+    document.getElementById('formUsername').value = u.username;
+    document.getElementById('formUsername').disabled = (u.username === 'admin');
+    document.getElementById('formIsAdmin').checked = u.is_admin;
+    document.getElementById('formLidaUser').value = u.lida_username || '';
+    document.getElementById('formLidaPwd').value = u.lida_password || '';
+    document.getElementById('formGrafanaUser').value = u.grafana_username || '';
+    document.getElementById('formGrafanaPwd').value = u.grafana_password || '';
+    document.getElementById('formMainUser').value = u.main_site_username || '';
+    document.getElementById('formMainPwd').value = u.main_site_password || '';
+    // 重置眼睛按钮为加密状态
+    document.querySelectorAll('.pwd-wrap input').forEach(inp => { inp.type = 'password'; });
+    document.querySelectorAll('.pwd-toggle').forEach(btn => { btn.innerHTML = eyeOffSvg; });
+    document.getElementById('formSchools').value = u.assigned_schools || '';
+    document.getElementById('userModal').style.display = 'flex';
+}
+
+function closeUserModal() {
+    document.getElementById('userModal').style.display = 'none';
+}
+
+async function saveUser() {
+    const id = document.getElementById('editUserId').value;
+    const username = document.getElementById('formUsername').value.trim();
+    const isEdit = !!id;
+
+    if (!username) { alert('用户名不能为空'); return; }
+
+    const body = {
+        username: username,
+        lida_username: document.getElementById('formLidaUser').value,
+        lida_password: document.getElementById('formLidaPwd').value,
+        grafana_username: document.getElementById('formGrafanaUser').value,
+        grafana_password: document.getElementById('formGrafanaPwd').value,
+        main_site_username: document.getElementById('formMainUser').value,
+        main_site_password: document.getElementById('formMainPwd').value,
+        assigned_schools: document.getElementById('formSchools').value,
+        is_admin: document.getElementById('formIsAdmin').checked,
+    };
+
+    const btn = document.getElementById('saveUserBtn');
+    btn.disabled = true; btn.textContent = '保存中...';
+
+    try {
+        const url = isEdit ? `/api/users/${id}` : '/api/users/';
+        const method = isEdit ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method, headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error || '保存失败'); return; }
+        closeUserModal();
+        await loadUsers();
+    } catch (e) {
+        alert('网络错误: ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = '保存';
+    }
+}
+
+async function deleteUser(id, name) {
+    if (!confirm(`确认删除用户 "${name}"？`)) return;
+    try {
+        const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) { alert(data.error || '删除失败'); return; }
+        await loadUsers();
+    } catch (e) {
+        alert('网络错误: ' + e.message);
+    }
+}
+
+loadUsers();
+/* ===== 批量导入 ===== */
+function downloadTemplate() {
+    window.open('/api/users/import-template', '_blank');
+}
+
+function showImportDialog() {
+    document.getElementById('importFile').value = '';
+    document.getElementById('importFileName').style.display = 'none';
+    document.getElementById('importResult').style.display = 'none';
+    document.getElementById('importBtn').disabled = true;
+    document.getElementById('importModal').style.display = 'flex';
+    // Reset drop zone style
+    const dz = document.getElementById('dropZone');
+    dz.style.borderColor = '';
+    dz.style.background = '';
+}
+
+function closeImportModal() {
+    document.getElementById('importModal').style.display = 'none';
+}
+
+function handleImportFile(file) {
+    if (!file) return;
+    if (!file.name.endsWith('.xlsx')) {
+        alert('请上传 .xlsx 格式的 Excel 文件');
+        return;
+    }
+    document.getElementById('importFile').files = new DataTransfer().files;
+    // Store file reference
+    window._importFile = file;
+    const fn = document.getElementById('importFileName');
+    fn.textContent = '已选择: ' + file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+    fn.style.display = 'block';
+    document.getElementById('importBtn').disabled = false;
+    document.getElementById('importResult').style.display = 'none';
+}
+
+async function doImport() {
+    const file = window._importFile;
+    if (!file) { alert('请先选择文件'); return; }
+
+    const btn = document.getElementById('importBtn');
+    btn.disabled = true;
+    btn.textContent = '导入中...';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const res = await fetch('/api/users/import', { method: 'POST', body: formData });
+        const data = await res.json();
+        const resultDiv = document.getElementById('importResult');
+        resultDiv.style.display = 'block';
+
+        if (!res.ok) {
+            resultDiv.innerHTML = '<div style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:12px;font-size:13px">' +
+                '<strong>导入失败</strong><br>' + (data.error || '未知错误') +
+                (data.details ? '<br>' + data.details.join('<br>') : '') +
+                '</div>';
+            return;
+        }
+
+        const s = data.summary;
+        let html = '<div style="background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px">';
+        html += '<strong>导入成功!</strong><br>';
+        html += '共处理 ' + s.total_rows + ' 行数据<br>';
+        html += '新建用户: ' + s.new_users + ' 个';
+        if (s.existing_users > 0) html += '（已有 ' + s.existing_users + ' 个用户仅追加学校）';
+        html += '<br>';
+        html += '新建学校: ' + s.new_schools + ' 所';
+        if (s.updated_schools > 0) html += '，更新学校: ' + s.updated_schools + ' 所';
+        html += '</div>';
+
+        if (data.warnings && data.warnings.length > 0) {
+            html += '<div style="background:#fffbeb;color:#92400e;border:1px solid #fde68a;border-radius:8px;padding:12px;font-size:13px;margin-top:8px">';
+            html += '<strong>警告:</strong><br>' + data.warnings.join('<br>');
+            html += '</div>';
+        }
+
+        resultDiv.innerHTML = html;
+        await loadUsers();
+
+    } catch (e) {
+        alert('网络错误: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '开始导入';
+    }
+}
+
+</script>
+{% endblock %}

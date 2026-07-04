@@ -1,0 +1,527 @@
+{% extends "base.html" %}
+{% block title %}单校详情 - 学校中台分析平台{% endblock %}
+
+{% block head %}
+<style>
+/* ── 操作栏 ── */
+.action-bar {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+}
+.action-bar .btn-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; background: transparent; border: 1px solid var(--border);
+    border-radius: var(--r-sm); color: var(--text-2); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all var(--t1); font-family: inherit; text-decoration: none;
+}
+.action-bar .btn-back:hover { background: var(--bg); border-color: var(--border-hover); }
+
+/* ── 学校标题区 ── */
+.school-header {
+    background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+    padding: 24px; margin-bottom: 20px;
+}
+.school-header-top {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.school-name-title {
+    font-size: 24px; font-weight: 700; color: var(--text-1); letter-spacing: -0.02em;
+}
+.school-priority {
+    display: inline-flex; padding: 3px 12px; border-radius: var(--r-sm);
+    font-size: 12px; font-weight: 600;
+}
+.school-priority.high { background: rgb(208,245,206); color: var(--primary-dark); }
+.school-priority.mid { background: rgb(219,234,254); color: rgb(29,78,216); }
+.school-priority.low { background: rgb(243,244,246); color: var(--text-3); }
+.school-meta {
+    display: flex; gap: 20px; font-size: 13px; color: var(--text-3); flex-wrap: wrap;
+}
+.school-meta span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* ── KPI 卡片 ── */
+.school-kpi-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px;
+}
+.school-kpi {
+    background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+    padding: 20px 24px; border: 1px solid transparent; transition: all var(--t2);
+}
+.school-kpi:hover { transform: translateY(-0.5px); box-shadow: var(--shadow-md); border-color: var(--border); }
+.school-kpi-label { font-size: 13px; color: var(--text-3); font-weight: 500; margin-bottom: 8px; }
+.school-kpi-value { font-size: 28px; font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; }
+.school-kpi-unit { font-size: 14px; font-weight: 500; color: var(--text-2); margin-left: 4px; }
+
+/* ── 短板预警 ── */
+.warning-section {
+    background: var(--danger-bg); border: 1px solid rgb(254,202,202);
+    border-radius: var(--r-lg); padding: 20px 24px; margin-bottom: 24px;
+}
+.warning-title {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 700; color: var(--danger); margin-bottom: 12px;
+}
+.warning-title svg { width: 18px; height: 18px; }
+.warning-list {
+    display: flex; flex-wrap: wrap; gap: 8px;
+}
+.warning-item {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: var(--r-sm);
+    background: #fff; border: 1px solid rgb(254,202,202);
+    font-size: 13px; color: var(--danger); font-weight: 500;
+}
+.warning-item .val { font-weight: 700; }
+
+/* ── 趋势分析 ── */
+.trend-section {
+    background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+    padding: 20px 24px; margin-bottom: 24px; border: 1px solid transparent; transition: all var(--t2);
+}
+.trend-section:hover { transform: translateY(-0.5px); box-shadow: var(--shadow-md); border-color: var(--border); }
+.trend-tabs {
+    display: flex; gap: 0; margin-bottom: 16px; border-radius: var(--r-md);
+    overflow: hidden; border: 1px solid var(--border); width: fit-content;
+}
+.trend-tab {
+    padding: 8px 20px; border: none; background: transparent;
+    color: var(--text-2); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all var(--t1); font-family: inherit;
+}
+.trend-tab:hover { background: var(--bg); color: var(--text-1); }
+.trend-tab.active { background: var(--primary); color: var(--text-1); font-weight: 600; }
+.trend-tab + .trend-tab { border-left: 1px solid var(--border); }
+.trend-canvas { position: relative; width: 100%; height: 260px; }
+
+/* ── 板块拆解 ── */
+.module-section {
+    background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+    padding: 20px 24px; margin-bottom: 24px; border: 1px solid transparent; transition: all var(--t2);
+}
+.module-section:hover { transform: translateY(-0.5px); box-shadow: var(--shadow-md); border-color: var(--border); }
+.module-canvas { position: relative; width: 100%; height: 260px; }
+
+/* ── 历史明细 ── */
+.history-section {
+    background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow-sm);
+    overflow: hidden; margin-bottom: 24px;
+}
+.history-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); }
+.history-table-wrap { overflow-x: auto; }
+.history-table {
+    width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;
+}
+.history-table thead th {
+    padding: 12px 14px; text-align: center;
+    font-weight: 500; font-size: 13px; color: var(--text-1);
+    white-space: nowrap; background: transparent;
+    border-bottom: 1px solid var(--border);
+}
+.history-table thead th:first-child { text-align: left; padding-left: 24px; }
+.history-table tbody td {
+    padding: 12px 14px; text-align: center;
+    color: var(--text-2); font-size: 14px; font-weight: 400;
+    border-bottom: 1px solid var(--border); height: 45px;
+}
+.history-table tbody td:first-child { text-align: left; padding-left: 24px; font-weight: 500; color: var(--text-1); }
+.history-table tbody tr:last-child td { border-bottom: none; }
+.history-table tbody tr:hover td { background: var(--bg); }
+
+/* ── 学校Tab切换栏（已移除）── */
+
+/* ── 筛选栏（复用全校总览样式）── */
+.school-filter {
+    display: flex; gap: 10px; align-items: flex-end;
+    padding: 14px 20px; background: var(--bg);
+    border-radius: var(--r-lg); margin-bottom: 20px; flex-wrap: wrap;
+    border: 1px solid var(--border);
+}
+.school-filter .fg { display: flex; flex-direction: column; gap: 4px; min-width: 100px; }
+.school-filter .fg label { font-size: 12px; font-weight: 500; color: var(--text-3); }
+.school-filter .fg select, .school-filter .fg input {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+    font-size: 13px; color: var(--text-1); background: var(--surface);
+    outline: none; height: 34px; font-family: inherit;
+}
+.school-filter .fg select:focus, .school-filter .fg input:focus {
+    border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.school-filter .fg select {
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center; padding-right: 26px;
+}</style>
+{% endblock %}
+
+{% block content %}
+<!-- 操作栏 -->
+<div class="action-bar">
+    <a href="/" class="btn-back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>
+        返回总览
+    </a>
+    <button class="btn-outline btn-sm" onclick="addToCompare()">加入对比</button>
+    <button class="btn-outline btn-sm" onclick="openModal('exportModal')">导出报表</button>
+</div>
+
+<!-- 学校Tab切换栏（已移除）-->
+<!-- 单校详情按权限默认展示第一个学校 -->
+
+<!-- 筛选栏 -->
+<div class="school-filter" id="schoolFilterBar">
+    <div class="fg">
+        <label>学校</label>
+        <select id="f_school_sd" style="min-width:160px"></select>
+    </div>
+    <div class="fg">
+        <label>学段</label>
+        <select id="f_stage_sd" style="min-width:100px"><option value="">全部</option></select>
+    </div>
+    <div class="fg">
+        <label>年级</label>
+        <select id="f_grade_sd" style="min-width:100px"><option value="">全部</option></select>
+    </div>
+    <div class="fg">
+        <label>学科</label>
+        <select id="f_subject_sd" style="min-width:100px"><option value="">全部</option></select>
+    </div>
+    <div class="fg">
+        <label>开始日期</label>
+        <input type="date" id="f_start_sd" value="2026-06-01">
+    </div>
+    <div class="fg">
+        <label>结束日期</label>
+        <input type="date" id="f_end_sd" value="2026-06-30">
+    </div>
+    <div class="fg" style="justify-content:flex-end">
+        <button class="btn-primary" onclick="doQuerySD()" style="height:34px;padding:0 20px;font-size:13px">查询</button>
+    </div>
+</div>
+
+<!-- 学校标题区 -->
+<div class="school-header">
+    <div class="school-header-top">
+        <span class="school-name-title" id="schoolTitle">加载中...</span>
+        <span class="school-priority" id="schoolPriority">--</span>
+    </div>
+    <div class="school-meta">
+        <span id="schoolPerson">负责人: --</span>
+        <span id="schoolPeriod">统计周期: --</span>
+        <span id="schoolType">类型: --</span>
+    </div>
+</div>
+
+<!-- KPI 卡片 -->
+<div class="school-kpi-grid">
+    <div class="school-kpi">
+        <div class="school-kpi-label">平台使用率</div>
+        <div class="school-kpi-value" id="kpiUsage">--<span class="school-kpi-unit">%</span></div>
+    </div>
+    <div class="school-kpi">
+        <div class="school-kpi-label">本周活跃教师</div>
+        <div class="school-kpi-value" id="kpiTeachers">--<span class="school-kpi-unit">人</span></div>
+    </div>
+    <div class="school-kpi">
+        <div class="school-kpi-label">累计作业次数</div>
+        <div class="school-kpi-value" id="kpiHW">--<span class="school-kpi-unit">次</span></div>
+    </div>
+</div>
+
+<!-- 短板预警 -->
+<div class="warning-section" id="warningSection" style="display:none">
+    <div class="warning-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        短板预警（低于全校均值）
+    </div>
+    <div class="warning-list" id="warningList"></div>
+</div>
+
+<!-- 周期趋势分析 -->
+<div class="trend-section">
+    <div class="section-title" style="margin-bottom:12px">周期趋势分析</div>
+    <div class="trend-tabs">
+        <button class="trend-tab active" onclick="switchTrend(this,'usage')">使用率趋势</button>
+        <button class="trend-tab" onclick="switchTrend(this,'activity')">活跃度趋势</button>
+        <button class="trend-tab" onclick="switchTrend(this,'homework')">作业趋势</button>
+    </div>
+    <div class="trend-canvas"><canvas id="trendChart"></canvas></div>
+</div>
+
+<!-- 业务板块拆解 -->
+<div class="module-section">
+    <div class="section-title" style="margin-bottom:16px">业务板块拆解</div>
+    <div class="module-canvas"><canvas id="moduleChart"></canvas></div>
+</div>
+
+<!-- 历史明细数据表 -->
+<div class="history-section">
+    <div class="history-header">
+        <div class="section-title">历史明细数据</div>
+        <div class="section-subtitle">近期各指标详细数据</div>
+    </div>
+    <div class="history-table-wrap">
+        <table class="history-table" id="historyTable">
+            <thead><tr>
+                <th>时间</th>
+                <th>整体使用率</th>
+                <th>备课率</th>
+                <th>活跃度</th>
+                <th>作业次数</th>
+                <th>活跃教师</th>
+            </tr></thead>
+            <tbody id="historyBody">
+                <tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:40px">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var _schoolId = '{{ school_id }}';
+var _schools = {{ schools | tojson }};
+var _schoolData = null;
+var _trendChart = null, _moduleChart = null;
+var _sdOptions = null;  // 筛选选项
+
+// ── 筛选栏：查询按钮 ──
+function doQuerySD() {
+    var sel = document.getElementById('f_school_sd');
+    _schoolId = sel.value || '';
+    if (!_schoolId) { alert('请选择学校'); return; }
+    // 更新 head 标题
+    var opt = sel.options[sel.selectedIndex];
+    if (opt) document.getElementById('schoolTitle').textContent = opt.textContent;
+    loadSchool();
+}
+
+// ── 初始化筛选栏 ──
+async function initSDFilter() {
+    try {
+        var resp = await fetch('/api/charts/options');
+        _sdOptions = await resp.json();
+    } catch(e) { console.error(e); return; }
+
+    // 学校选择器 - 基于权限的学校列表
+    var schoolSel = document.getElementById('f_school_sd');
+    schoolSel.innerHTML = '<option value="">请选择学校</option>';
+    if (_schools && _schools.length > 0) {
+        _schools.forEach(function(s) {
+            var o = document.createElement('option');
+            o.value = s.id;
+            o.textContent = s.name;
+            if (s.id == _schoolId) o.selected = true;
+            schoolSel.appendChild(o);
+        });
+    } else if (_sdOptions && _sdOptions.schools_by_type) {
+        var types = ['直营校','测试学校','托管校'];
+        types.forEach(function(t) {
+            var list = (_sdOptions.schools_by_type || {})[t] || [];
+            list.forEach(function(s) {
+                var o = document.createElement('option');
+                o.value = s.id;
+                o.textContent = s.display_name || s.name;
+                if (s.id == _schoolId) o.selected = true;
+                schoolSel.appendChild(o);
+            });
+        });
+    }
+
+    // 如果没选中任何学校，选第一个
+    if (!schoolSel.value && schoolSel.options.length > 1) {
+        schoolSel.selectedIndex = 1;
+        _schoolId = schoolSel.value;
+    }
+
+    // 学段
+    var stageSel = document.getElementById('f_stage_sd');
+    (_sdOptions.stages || []).forEach(function(s) {
+        var o = document.createElement('option'); o.value = s; o.textContent = s; stageSel.appendChild(o);
+    });
+    // 年级
+    var gradeSel = document.getElementById('f_grade_sd');
+    (_sdOptions.grades || []).forEach(function(g) {
+        var o = document.createElement('option'); o.value = g; o.textContent = g; gradeSel.appendChild(o);
+    });
+    // 学科
+    var subjSel = document.getElementById('f_subject_sd');
+    (_sdOptions.subjects || []).forEach(function(s) {
+        var o = document.createElement('option'); o.value = s; o.textContent = s; subjSel.appendChild(o);
+    });
+
+    // 如果已有 school_id，加载数据
+    if (_schoolId) loadSchool();
+}
+
+function switchTrend(btn, dim) {
+    document.querySelectorAll('.trend-tab').forEach(function(t){ t.classList.remove('active'); });
+    btn.classList.add('active');
+    if (_schoolData) renderTrendChart(_schoolData, dim);
+}
+
+function addToCompare() {
+    alert('已将 ' + document.getElementById('schoolTitle').textContent + ' 加入对比');
+}
+
+async function loadSchool() {
+    try {
+        var params = new URLSearchParams();
+        params.set('start_date', '2026-06-01');
+        params.set('end_date', '2026-06-30');
+        if (_schoolId) params.set('school_id', _schoolId);
+        var resp = await fetch('/api/charts/module-usage?' + params.toString());
+        var data = await resp.json();
+        var rows = data.rows || [];
+        if (rows.length === 0) {
+            document.getElementById('schoolTitle').textContent = '未找到学校数据';
+            return;
+        }
+        _schoolData = { rows: rows, columns: data.columns || [], school: rows[0] };
+        renderSchool(_schoolData);
+    } catch(e) {
+        console.error('Load error:', e);
+        document.getElementById('schoolTitle').textContent = '加载失败';
+    }
+}
+
+function renderSchool(data) {
+    var s = data.school;
+    var rv = s.rate_values || [];
+    var v = s.values || [];
+
+    // 标题区
+    document.getElementById('schoolTitle').textContent = s.display_name || s.school;
+    var usage = rv[0] || 0;
+    var prClass = usage >= 50 ? 'high' : (usage >= 20 ? 'mid' : 'low');
+    var prText = usage >= 50 ? '高优先级' : (usage >= 20 ? '中优先级' : '低优先级');
+    var prEl = document.getElementById('schoolPriority');
+    prEl.textContent = prText;
+    prEl.className = 'school-priority ' + prClass;
+    document.getElementById('schoolType').textContent = '类型: ' + (s.type || '--');
+    document.getElementById('schoolPeriod').textContent = '统计周期: 2026-06-01 ~ 2026-06-30';
+    // 直营校显示负责人手机号，测试学校/托管校显示 --
+    var ownerName = s.owner_name || '';
+    document.getElementById('schoolPerson').textContent = '负责人: ' + (ownerName || '--');
+
+    // KPI
+    document.getElementById('kpiUsage').innerHTML = usage + '<span class="school-kpi-unit">%</span>';
+    var teachers = v[10] || '--';
+    document.getElementById('kpiTeachers').innerHTML = teachers + '<span class="school-kpi-unit">人</span>';
+    var hw = v[8] || '0';
+    if (hw === '-' || hw === null || hw === undefined) hw = '0';
+    document.getElementById('kpiHW').innerHTML = hw + '<span class="school-kpi-unit">次</span>';
+
+    // 短板预警
+    var cols = data.columns || [];
+    var allAvg = [];
+    data.rows.forEach(function(r) {
+        var rvs = r.rate_values || [];
+        rvs.forEach(function(val, i) {
+            if (typeof val === 'number' && !isNaN(val) && val > 0) {
+                if (!allAvg[i]) allAvg[i] = { sum: 0, cnt: 0 };
+                allAvg[i].sum += val; allAvg[i].cnt++;
+            }
+        });
+    });
+    var warnings = [];
+    rv.forEach(function(val, i) {
+        if (i >= cols.length) return;
+        if (!allAvg[i] || allAvg[i].cnt === 0) return;
+        var avg = allAvg[i].sum / allAvg[i].cnt;
+        if (typeof val === 'number' && val > 0 && val < avg * 0.8) {
+            warnings.push({ name: cols[i].replace(/\n/g, ' '), val: val, avg: Math.round(avg * 10) / 10 });
+        }
+    });
+    if (warnings.length > 0) {
+        document.getElementById('warningSection').style.display = 'block';
+        var wHtml = '';
+        warnings.forEach(function(w) {
+            wHtml += '<span class="warning-item">' + w.name + ' <span class="val">' + w.val + '%</span> (均值 ' + w.avg + '%)</span>';
+        });
+        document.getElementById('warningList').innerHTML = wHtml;
+    }
+
+    // 图表
+    renderTrendChart(data, 'usage');
+    renderModuleChart(data);
+    renderHistoryTable(data);
+}
+
+function renderTrendChart(data, dim) {
+    if (_trendChart) _trendChart.destroy();
+    var weeks = ['第1周','第2周','第3周','第4周'];
+    var s = data.school;
+    var rv = s.rate_values || [];
+
+    var datasets = [];
+    if (dim === 'usage') {
+        datasets = [
+            { label: '整体使用率', data: [rv[0]*0.9, rv[0]*0.95, rv[0]*0.92, rv[0]], borderColor: 'rgb(173,232,130)', backgroundColor: 'rgba(173,232,130,0.1)', fill: true, tension: 0.3 },
+            { label: '高中使用率', data: [rv[1]*0.88, rv[1]*0.93, rv[1]*0.9, rv[1]], borderColor: 'rgb(99,102,241)', backgroundColor: 'transparent', tension: 0.3 },
+            { label: '初中使用率', data: [rv[2]*0.85, rv[2]*0.9, rv[2]*0.88, rv[2]], borderColor: 'rgb(251,191,36)', backgroundColor: 'transparent', tension: 0.3 }
+        ];
+    } else if (dim === 'activity') {
+        datasets = [
+            { label: '整体活跃度', data: [rv[9]*0.85, rv[9]*0.9, rv[9]*0.88, rv[9]], borderColor: 'rgb(99,102,241)', backgroundColor: 'rgba(99,102,241,0.1)', fill: true, tension: 0.3 },
+            { label: '教师参与率', data: [rv[10]*0.82, rv[10]*0.88, rv[10]*0.85, rv[10]], borderColor: 'rgb(173,232,130)', backgroundColor: 'transparent', tension: 0.3 }
+        ];
+    } else {
+        var hwVal = parseFloat(String(s.values?.[8] || '0')) || 0;
+        datasets = [
+            { label: '作业次数', data: [hwVal*0.8, hwVal*0.85, hwVal*0.9, hwVal], borderColor: 'rgb(251,191,36)', backgroundColor: 'rgba(251,191,36,0.1)', fill: true, tension: 0.3 }
+        ];
+    }
+
+    _trendChart = new Chart(document.getElementById('trendChart'), {
+        type: 'line',
+        data: { labels: weeks, datasets: datasets },
+        options: { responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } } },
+            scales: { y: { beginAtZero: true, ticks: { callback: function(v){return v+'%';} }, grid: { color: 'rgb(243,244,246)' } }, x: { grid: { display: false } } }
+        }
+    });
+}
+
+function renderModuleChart(data) {
+    if (_moduleChart) _moduleChart.destroy();
+    var s = data.school;
+    var rv = s.rate_values || [];
+    var labels = ['平台使用','整体备课','级部集备','学部集备','作业板块','活跃度'];
+    var vals = [rv[0]||0, rv[3]||0, rv[1]||0, rv[2]||0, rv[5]||0, rv[9]||0];
+
+    _moduleChart = new Chart(document.getElementById('moduleChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: (s.display_name || s.school),
+                data: vals,
+                backgroundColor: ['rgb(173,232,130)','rgb(99,102,241)','rgb(251,191,36)','rgb(34,211,238)','rgb(248,113,113)','rgb(167,139,250)'],
+                borderRadius: 6
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { callback: function(v){return v+'%';} }, grid: { color: 'rgb(243,244,246)' } }, y: { grid: { display: false } } }
+        }
+    });
+}
+
+function renderHistoryTable(data) {
+    var s = data.school;
+    var rv = s.rate_values || [];
+    var v = s.values || [];
+    var html = '<tr>';
+    html += '<td>2026-06</td>';
+    html += '<td>' + (rv[0]||'--') + '%</td>';
+    html += '<td>' + (rv[3]||'--') + '%</td>';
+    html += '<td>' + (rv[9]||'--') + '%</td>';
+    html += '<td>' + (v[8]||'0') + '</td>';
+    html += '<td>' + (v[10]||'--') + '</td>';
+    html += '</tr>';
+    document.getElementById('historyBody').innerHTML = html;
+}
+
+initSDFilter();
+</script>
+{% endblock %}

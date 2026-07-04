@@ -1,0 +1,597 @@
+{% extends "base.html" %}
+{% block title %}多校对比分析 - 学校中台分析平台{% endblock %}
+
+{% block head %}
+<style>
+/* ── 维度 Tab ── */
+.dim-tabs {
+    display: flex; gap: 0; margin-bottom: 20px;
+    border-radius: var(--r-md); overflow: hidden;
+    border: 1px solid var(--border); width: fit-content;
+}
+.dim-tab {
+    padding: 10px 24px; border: none; background: transparent;
+    color: var(--text-2); font-size: 14px; font-weight: 500;
+    cursor: pointer; transition: all var(--t1); font-family: inherit;
+}
+.dim-tab:hover { background: var(--bg); color: var(--text-1); }
+.dim-tab.active { background: var(--primary); color: var(--text-1); font-weight: 600; }
+.dim-tab + .dim-tab { border-left: 1px solid var(--border); }
+
+/* ── 紧凑型学校类型 Tab（inline） ── */
+.type-tabs-inline { display: inline-flex; gap: 0; border-radius: var(--r-sm); overflow: hidden; border: 1px solid var(--border); }
+.type-tab-sm { padding: 2px 10px; border: none; background: transparent; color: var(--text-3); font-size: 11px; font-weight: 500; cursor: pointer; transition: all var(--t1); font-family: inherit; white-space: nowrap; }
+.type-tab-sm:hover { background: var(--bg); color: var(--text-1); }
+.type-tab-sm.active { background: var(--primary); color: #fff; font-weight: 600; }
+.type-tab-sm + .type-tab-sm { border-left: 1px solid var(--border); }
+
+/* ── 图表区 ── */
+.chart-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;
+}
+.chart-box {
+    background: var(--surface); border-radius: var(--r-lg);
+    border: 1px solid transparent; box-shadow: var(--shadow-sm);
+    padding: 20px 24px; transition: all var(--t2);
+}
+.chart-box:hover {
+    transform: translateY(-0.5px); box-shadow: var(--shadow-md); border-color: var(--border);
+}
+.chart-box-title {
+    font-size: 16px; font-weight: 700; color: var(--text-1); margin-bottom: 4px;
+}
+.chart-box-subtitle {
+    font-size: 12px; color: var(--text-3); margin-bottom: 16px;
+}
+.chart-box-canvas { position: relative; width: 100%; height: 280px; }
+
+/* ── 差值分析表 ── */
+.diff-section {
+    background: var(--surface); border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 24px;
+}
+.diff-header {
+    padding: 20px 24px 16px; border-bottom: 1px solid var(--border);
+}
+.diff-table-wrap { overflow-x: auto; }
+.diff-table {
+    width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums;
+}
+.diff-table thead th {
+    padding: 12px 16px; text-align: center;
+    font-weight: 500; font-size: 13px; color: var(--text-1);
+    white-space: nowrap; background: transparent;
+    border-bottom: 1px solid var(--border);
+}
+.diff-table thead th:first-child { text-align: left; padding-left: 24px; }
+.diff-table tbody td {
+    padding: 12px 16px; text-align: center;
+    color: var(--text-2); font-size: 14px; font-weight: 500;
+    border-bottom: 1px solid var(--border); height: 45px;
+}
+.diff-table tbody td:first-child { text-align: left; padding-left: 24px; font-weight: 600; color: var(--text-1); }
+.diff-table tbody tr:last-child td { border-bottom: none; }
+.diff-table tbody tr:hover td { background: var(--bg); }
+.diff-best { color: var(--success); font-weight: 600; }
+.diff-worst { color: var(--danger); font-weight: 600; }
+.diff-range { color: var(--warning); font-weight: 600; }
+.diff-school-name { font-size: 11px; color: var(--text-3); display: block; margin-top: 2px; }
+
+/* ── 全局筛选栏 ── */
+.global-filter {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 16px 24px; background: var(--bg);
+    border-radius: var(--r-lg); margin-bottom: 20px; flex-wrap: wrap;
+    border: 1px solid var(--border);
+}
+.global-filter .fg { display: flex; flex-direction: column; gap: 4px; min-width: 100px; }
+.global-filter .fg label { font-size: 12px; font-weight: 500; color: var(--text-3); }
+.global-filter .fg label .req { color: var(--danger); }
+.global-filter .fg input, .global-filter .fg select {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+    font-size: 13px; color: var(--text-1); background: var(--surface);
+    outline: none; height: 34px; font-family: inherit;
+}
+.global-filter .fg input:focus, .global-filter .fg select:focus {
+    border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.global-filter .fg select {
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center; padding-right: 26px;
+}
+
+/* ── 可搜索下拉 ── */
+.ss-wrap { position: relative; }
+.ss-input {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+    font-size: 13px; color: var(--text-1); background: var(--surface);
+    outline: none; height: 34px; width: 100%; cursor: pointer; font-family: inherit;
+}
+.ss-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.ss-dropdown {
+    display: none; position: absolute; z-index: 100;
+    top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 0 0 var(--r-sm) var(--r-sm); box-shadow: var(--shadow-md); font-size: 12px;
+}
+.ss-dropdown.open { display: block; }
+.ss-option { padding: 7px 10px; cursor: pointer; }
+.ss-option:hover, .ss-option.highlighted { background: var(--primary-soft); }
+.ss-option.selected { background: var(--primary-soft); font-weight: 600; }
+.ss-group-label { padding: 5px 10px 2px; font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; border-top: 1px solid var(--border); }
+.ss-group-label:first-child { border-top: none; }
+.ss-no-result { padding: 10px; color: var(--text-3); text-align: center; }
+.ss-hidden { display: none !important; }
+
+/* ── 多选学校标签 ── */
+.ss-tags { display: flex; flex-wrap: wrap; gap: 4px; min-height: 0; }
+.ss-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; background: rgb(219,234,254); color: rgb(37,99,235);
+    border-radius: 99px; font-size: 11px; font-weight: 500;
+}
+.ss-tag-close {
+    cursor: pointer; font-size: 13px; line-height: 1;
+    opacity: 0.6; transition: opacity var(--t1);
+}
+.ss-tag-close:hover { opacity: 1; }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">多校对比分析</h1>
+<p class="page-subtitle">横向对比多所学校各维度指标，发现差距与优势</p>
+
+<!-- ===== 全局筛选栏（同全校总览大盘） ===== -->
+<div class="global-filter" id="globalFilterBar">
+    <div class="fg" style="min-width:180px">
+        <label style="display:flex;align-items:center;gap:8px">
+            学校
+            <span class="type-tabs-inline" id="typeTabs">
+                <button class="type-tab-sm active" data-type="直营校" onclick="switchTypeTab(this)">直营校</button>
+                <button class="type-tab-sm" data-type="测试学校" onclick="switchTypeTab(this)">测试学校</button>
+                <button class="type-tab-sm" data-type="托管校" onclick="switchTypeTab(this)">托管校</button>
+            </span>
+        </label>
+        <div class="ss-wrap" id="ss_school">
+            <input type="text" class="ss-input" placeholder="搜索学校(多选)..." autocomplete="off">
+            <div class="ss-dropdown"></div>
+            <select class="ss-hidden" id="f_school_dummy"><option value="">全部学校</option></select>
+            <input type="hidden" id="f_school_ids" value="">
+        </div>
+        <div class="ss-tags" id="schoolTags"></div>
+    </div>
+    <div class="fg">
+        <label>学段</label>
+        <div class="ss-wrap" id="ss_stage">
+            <input type="text" class="ss-input" placeholder="全部学段" autocomplete="off">
+            <div class="ss-dropdown"></div>
+            <select class="ss-hidden" id="f_stage"><option value="">全部</option></select>
+        </div>
+    </div>
+    <div class="fg">
+        <label>年级</label>
+        <div class="ss-wrap" id="ss_grade">
+            <input type="text" class="ss-input" placeholder="全部年级" autocomplete="off">
+            <div class="ss-dropdown"></div>
+            <select class="ss-hidden" id="f_grade"><option value="">全部</option></select>
+        </div>
+    </div>
+    <div class="fg">
+        <label>学科</label>
+        <div class="ss-wrap" id="ss_subject">
+            <input type="text" class="ss-input" placeholder="全部学科" autocomplete="off">
+            <div class="ss-dropdown"></div>
+            <select class="ss-hidden" id="f_subject"><option value="">全部</option></select>
+        </div>
+    </div>
+    <div class="fg">
+        <label>开始日期<span class="req">*</span></label>
+        <input type="date" id="f_start" value="2026-06-01">
+    </div>
+    <div class="fg">
+        <label>结束日期<span class="req">*</span></label>
+        <input type="date" id="f_end" value="2026-06-30">
+    </div>
+    <div class="fg" style="min-width:0">
+        <label>&nbsp;</label>
+        <button class="btn-primary btn-sm" id="btnQuery" onclick="doQuery()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            查询
+        </button>
+    </div>
+</div>
+<div class="dim-tabs">
+    <button class="dim-tab active" onclick="switchDim(this,'usage')">使用率维度</button>
+    <button class="dim-tab" onclick="switchDim(this,'module')">作业板块维度</button>
+    <button class="dim-tab" onclick="switchDim(this,'activity')">活跃度维度</button>
+</div>
+
+<!-- ===== 图表区 ===== -->
+<div class="chart-grid" id="cmpGrid">
+    <div class="chart-box">
+        <div class="chart-box-title">多校指标横向对比</div>
+        <div class="chart-box-subtitle" id="barSubtitle">各维度使用率对比</div>
+        <div class="chart-box-canvas"><canvas id="cmpBarChart"></canvas></div>
+    </div>
+    <div class="chart-box">
+        <div class="chart-box-title">全板块均衡对标</div>
+        <div class="chart-box-subtitle">雷达图展示各校综合均衡度</div>
+        <div class="chart-box-canvas"><canvas id="cmpRadarChart"></canvas></div>
+    </div>
+</div>
+
+<!-- ===== 差值分析表 ===== -->
+<div class="diff-section">
+    <div class="diff-header">
+        <div class="section-title">差值分析</div>
+        <div class="section-subtitle">各指标最优/最差学校及极差</div>
+    </div>
+    <div class="diff-table-wrap">
+        <table class="diff-table" id="diffTable">
+            <thead>
+                <tr>
+                    <th>指标名称</th>
+                    <th>最大值 / 最优学校</th>
+                    <th>最小值 / 最差学校</th>
+                    <th>平均值</th>
+                    <th>极差</th>
+                </tr>
+            </thead>
+            <tbody id="diffBody">
+                <tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:40px">请先查询数据</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Loading -->
+<div class="empty-state" id="loadingOverlay" style="display:none">
+    <div class="loading-spinner" style="margin:0 auto 12px"></div>
+    <span>正在查询数据...</span>
+</div>
+
+<!-- 空状态 -->
+<div class="empty-state" id="emptyState" style="display:none">
+    <p>暂无数据，请调整筛选条件后重新查询</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ═══════════════════════════════════════
+   多校对比分析页
+   ═══════════════════════════════════════ */
+var _cmpData = null;
+var _currentDim = 'usage';
+var _currentType = '直营校';  // 默认选中直营校
+var _barChart = null, _radarChart = null;
+var OPTIONS = { schools: [], schools_by_type: {}, stages: [], grades: [], subjects: [] };
+
+// ── 维度 Tab 切换 ──
+function switchDim(btn, dim) {
+    document.querySelectorAll('.dim-tab').forEach(function(t){ t.classList.remove('active'); });
+    btn.classList.add('active');
+    _currentDim = dim;
+    if (_cmpData) { renderCharts(_cmpData); renderDiffTable(_cmpData); }
+}
+
+// ── 学校类型 Tab 切换 ──
+function switchTypeTab(btn) {
+    document.querySelectorAll('#typeTabs .type-tab-sm').forEach(function(t){ t.classList.remove('active'); });
+    btn.classList.add('active');
+    _currentType = btn.getAttribute('data-type');
+}
+
+// ── 查询 ──
+async function doQuery() {
+    var btn = document.getElementById("btnQuery");
+    btn.disabled = true; btn.textContent = '查询中...';
+    document.getElementById("loadingOverlay").style.display = "block";
+    document.getElementById("emptyState").style.display = "none";
+
+    var params = new URLSearchParams();
+    params.set("start_date", document.getElementById("f_start").value);
+    params.set("end_date", document.getElementById("f_end").value);
+    if (_currentType) params.set("types", _currentType);
+    var schoolIds = document.getElementById("f_school_ids").value;
+    if (schoolIds) params.set("school_id", schoolIds);
+    var stage = document.getElementById("f_stage").value;
+    if (stage) params.set("stage", stage);
+    var grade = document.getElementById("f_grade").value;
+    if (grade) params.set("grade", grade);
+    var subject = document.getElementById("f_subject").value;
+    if (subject) params.set("subject", subject);
+
+    try {
+        var resp = await fetch("/api/charts/module-usage?" + params.toString());
+        var data = await resp.json();
+        if (data.error) { alert("查询失败: " + data.error); return; }
+        _cmpData = data;
+        renderCharts(data);
+        renderDiffTable(data);
+    } catch(e) { alert("请求失败: " + e.message); }
+    finally {
+        document.getElementById("loadingOverlay").style.display = "none";
+        btn.disabled = false;
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> 查询';
+    }
+}
+
+// ── 图表渲染 ──
+function renderCharts(data) {
+    var rows = data.rows || [];
+    if (_barChart) _barChart.destroy();
+    if (_radarChart) _radarChart.destroy();
+
+    // 维度选择对应的指标索引
+    var dimConfig = {
+        usage: { indices: [0,1,2,3], labels: ['整体使用率','高中使用率','初中使用率','小学使用率'],
+            radarIndices: [0,1,2,3,4,5], radarLabels: ['平台总体','内部员工','个备访问','集备访问','组卷访问','手阅作业'] },
+        module: { indices: [8,9], labels: ['作业次数','人均作业次数'],
+            radarIndices: [8,9], radarLabels: ['作业次数','人均作业次数'] },
+        activity: { indices: [10,11,12], labels: ['日活比例','周活比例','月活比例'],
+            radarIndices: [10,11,12], radarLabels: ['日活比例','周活比例','月活比例'] }
+    };
+    var cfg = dimConfig[_currentDim] || dimConfig.usage;
+    document.getElementById('barSubtitle').textContent = cfg.labels.join(' / ') + ' 对比';
+
+    // 柱状图
+    var colors = ['rgb(173,232,130)','rgb(99,102,241)','rgb(251,191,36)','rgb(248,113,113)','rgb(34,211,238)'];
+    var datasets = cfg.indices.map(function(idx, i) {
+        return {
+            label: cfg.labels[i],
+            data: rows.map(function(r){ return (r.rate_values||[])[idx] || 0; }),
+            backgroundColor: colors[i % colors.length],
+            borderRadius: 4
+        };
+    });
+    _barChart = new Chart(document.getElementById('cmpBarChart'), {
+        type: 'bar',
+        data: { labels: rows.map(function(r){ return r.display_name || r.school; }), datasets: datasets },
+        options: { responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } } },
+            scales: { y: { beginAtZero: true, ticks: { callback: function(v){return v+'%';} }, grid: { color: 'rgb(243,244,246)' } }, x: { grid: { display: false }, ticks: { font: { size: 10 } } } }
+        }
+    });
+
+    // 雷达图 — 跟随当前维度的指标
+    var radarColors = ['rgba(173,232,130,0.2)','rgba(99,102,241,0.2)','rgba(251,191,36,0.2)','rgba(248,113,113,0.2)','rgba(34,211,238,0.2)','rgba(168,85,247,0.2)'];
+    var radarBorders = ['rgb(173,232,130)','rgb(99,102,241)','rgb(251,191,36)','rgb(248,113,113)','rgb(34,211,238)','rgb(168,85,247)'];
+    var radarDatasets = rows.slice(0, 6).map(function(r, i) {
+        var rv = r.rate_values || [];
+        return {
+            label: r.display_name || r.school,
+            data: (cfg.radarIndices || cfg.indices).map(function(idx){ return rv[idx] || 0; }),
+            backgroundColor: radarColors[i % radarColors.length],
+            borderColor: radarBorders[i % radarBorders.length],
+            pointBackgroundColor: radarBorders[i % radarBorders.length],
+            borderWidth: 2
+        };
+    });
+    _radarChart = new Chart(document.getElementById('cmpRadarChart'), {
+        type: 'radar',
+        data: { labels: cfg.radarLabels || cfg.labels, datasets: radarDatasets },
+        options: { responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } } },
+            scales: { r: { beginAtZero: true, ticks: { display: false }, grid: { color: 'rgb(229,231,235)' }, pointLabels: { font: { size: 11 } } } }
+        }
+    });
+}
+
+// ── 差值分析表 ──
+function renderDiffTable(data) {
+    var rows = data.rows || [];
+    if (rows.length === 0) return;
+    var cols = data.columns || [];
+    var html = '';
+    cols.forEach(function(col, idx) {
+        var vals = [], names = [];
+        rows.forEach(function(r) {
+            var rv = r.rate_values || [];
+            var v = rv[idx];
+            if (typeof v === 'number' && !isNaN(v) && v > 0) {
+                vals.push(v);
+                names.push(r.display_name || r.school);
+            }
+        });
+        if (vals.length === 0) return;
+        var maxV = -Infinity, minV = Infinity, maxN = '', minN = '', sum = 0;
+        vals.forEach(function(v, i) {
+            sum += v;
+            if (v > maxV) { maxV = v; maxN = names[i]; }
+            if (v < minV) { minV = v; minN = names[i]; }
+        });
+        var avg = Math.round(sum / vals.length * 10) / 10;
+        var range = Math.round((maxV - minV) * 10) / 10;
+        html += '<tr>';
+        html += '<td>' + escapeHtml(col).replace(/\n/g, ' ') + '</td>';
+        html += '<td class="diff-best">' + maxV + '%<span class="diff-school-name">' + escapeHtml(maxN) + '</span></td>';
+        html += '<td class="diff-worst">' + minV + '%<span class="diff-school-name">' + escapeHtml(minN) + '</span></td>';
+        html += '<td>' + avg + '%</td>';
+        html += '<td class="diff-range">' + range + '%</td>';
+        html += '</tr>';
+    });
+    document.getElementById('diffBody').innerHTML = html || '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:40px">无可用数据</td></tr>';
+}
+
+function getRateClass(val) {
+    if(val===null||val===undefined||val==="-"||val==="") return "na";
+    var num=(typeof val==="number")?val:parseFloat(val);
+    if(isNaN(num)) return "na"; if(num===0) return "zero";
+    if(num>=50) return "high"; if(num>=20) return "mid"; return "low";
+}
+function escapeHtml(s){if(!s)return"";return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+
+/* ── 可搜索下拉框 ── */
+var _ss = {};
+function initSS(id, data) {
+    var c = document.getElementById(id); if(!c) return;
+    var inp = c.querySelector('.ss-input'), dd = c.querySelector('.ss-dropdown'), sel = c.querySelector('.ss-hidden');
+    _ss[id] = {inp:inp,dd:dd,sel:sel,data:data||[],open:false,hi:-1};
+    inp.addEventListener('focus', function(){openSS(id);});
+    inp.addEventListener('click', function(){openSS(id);});
+    inp.addEventListener('input', function(){openSS(id);});
+    inp.addEventListener('keydown', function(e){
+        var s=_ss[id]; if(!s||!s.open) return;
+        var opts=s.dd.querySelectorAll('.ss-option'), cnt=opts.length;
+        if(e.key==='ArrowDown'){e.preventDefault();s.hi=Math.min(s.hi+1,cnt-1);updateHi(id);}
+        else if(e.key==='ArrowUp'){e.preventDefault();s.hi=Math.max(s.hi-1,0);updateHi(id);}
+        else if(e.key==='Enter'){e.preventDefault();if(cnt>0&&s.hi>=0)selOpt(id,opts[s.hi]);else if(cnt>0)selOpt(id,opts[0]);else closeSS(id);}
+        else if(e.key==='Escape'){closeSS(id);inp.blur();}
+    });
+    document.addEventListener('click',function(e){if(!c.contains(e.target))closeSS(id);});
+    renderSS(id, data||[]);
+}
+function updateHi(id){var s=_ss[id];s.dd.querySelectorAll('.ss-option').forEach(function(el,i){el.classList.toggle('highlighted',i===s.hi);});}
+function openSS(id){var s=_ss[id];s.open=true;s.dd.classList.add('open');filterSS(id);}
+function closeSS(id){var s=_ss[id];s.open=false;s.dd.classList.remove('open');}
+function filterSS(id){var s=_ss[id];var q=(s.inp.value||'').toLowerCase().trim();renderSS(id,s.data.filter(function(it){return!q||it.text.toLowerCase().indexOf(q)>=0;}));}
+function renderSS(id,items){
+    var s=_ss[id],html='';
+    if(!items.length){html='<div class="ss-no-result">无匹配结果</div>';}
+    else{var lg=null;items.forEach(function(it){if(it.group&&it.group!==lg){html+='<div class="ss-group-label">'+escapeHtml(it.group)+'</div>';lg=it.group;}
+    var sel=s.sel.value===it.value?' selected':'';html+='<div class="ss-option'+sel+'" data-value="'+escapeAttr(it.value)+'" data-ss="'+id+'">'+escapeHtml(it.text)+'</div>';});}
+    s.dd.innerHTML=html; s.hi=items.length>0?0:-1; updateHi(id);
+    s.dd.querySelectorAll('.ss-option').forEach(function(el){el.addEventListener('mousedown',function(e){e.preventDefault();selOpt(id,el);});});
+}
+function selOpt(id,el){
+    var s=_ss[id]; var v=el.getAttribute('data-value');
+    if(id==='ss_school'&&v){
+        addSchoolTag(v, el.textContent);
+        s.inp.value=''; closeSS(id); filterSS(id);
+    }else{
+        s.sel.value=v; s.inp.value=v?el.textContent:''; closeSS(id);
+        s.sel.dispatchEvent(new Event('change',{bubbles:true}));
+    }
+}
+function updateSearchableOptions(id,data){var s=_ss[id];if(!s)return;s.data=data||[];var cv=s.sel.value;if(cv&&!data.some(function(d){return d.value===cv;})){s.sel.value='';s.inp.value='';}renderSS(id,data);}
+function escapeAttr(s){return String(s||'').replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+/* ── 多选学校标签 ── */
+var _selectedSchoolIds = [];
+function addSchoolTag(schoolId, schoolName) {
+    if (_selectedSchoolIds.some(function(s){return s.id===schoolId;})) return;
+    _selectedSchoolIds.push({id:schoolId, name:schoolName});
+    renderSchoolTags();
+}
+function removeSchoolTag(schoolId) {
+    _selectedSchoolIds = _selectedSchoolIds.filter(function(s){return s.id!==schoolId;});
+    renderSchoolTags();
+}
+function renderSchoolTags() {
+    var container = document.getElementById('schoolTags');
+    var html = '';
+    _selectedSchoolIds.forEach(function(s){
+        html += '<span class="ss-tag">'+escapeHtml(s.name)+'<span class="ss-tag-close" onclick="removeSchoolTag(\''+escapeAttr(s.id)+'\')">&times;</span></span>';
+    });
+    container.innerHTML = html;
+    document.getElementById('f_school_ids').value = _selectedSchoolIds.map(function(s){return s.id;}).join(',');
+}
+
+/* ── 学段 → 年级联动 ── */
+var STAGE_GRADE_MAP = { "高中": ["高一","高二","高三"], "初中": ["七年级","八年级","九年级"], "小学": ["一年级","二年级","三年级","四年级","五年级","六年级"] };
+function onStageChange() {
+    var stage = document.getElementById("f_stage").value;
+    var grades = stage && STAGE_GRADE_MAP[stage] ? STAGE_GRADE_MAP[stage] : OPTIONS.grades;
+    updateSearchableOptions("ss_grade", grades.map(function(g){return{text:g,value:g};}));
+}
+
+// ── 初始化 ──
+async function initPage() {
+    try { var resp = await fetch("/api/charts/options"); OPTIONS = await resp.json(); } catch(e){ console.error(e); return; }
+
+    // 初始化学校搜索下拉（多选）
+    var types = ["直营校","测试学校","托管校"];
+    var schoolData = [];
+    types.forEach(function(t){
+        var list = (OPTIONS.schools_by_type||{})[t]||[];
+        if (!list.length) return;
+        var gl = t + " (" + list.length + "所)";
+        list.forEach(function(s){
+            schoolData.push({text: s.display_name || s.name, value: s.id, group: gl});
+        });
+    });
+    initSS("ss_school", schoolData);
+
+    // 初始化学段、年级、学科搜索下拉
+    initSS("ss_stage", [{text:"全部",value:""}].concat((OPTIONS.stages||[]).map(function(s){return{text:s,value:s};})));
+    initSS("ss_grade", [{text:"全部",value:""}].concat((OPTIONS.grades||[]).map(function(g){return{text:g,value:g};})));
+    initSS("ss_subject", [{text:"全部",value:""}].concat((OPTIONS.subjects||[]).map(function(s){return{text:s,value:s};})));
+
+    // 学段变更时联动年级
+    document.getElementById("f_stage").addEventListener("change", onStageChange);
+
+    // Enter 键触发查询
+    document.addEventListener('keydown', function(e){
+        if(e.key!=='Enter') return;
+        if(e.target.tagName==='BUTTON') return;
+        for(var k in _ss){if(_ss[k]&&_ss[k].open) return;}
+        var fb = document.getElementById('globalFilterBar');
+        if(fb && fb.contains(document.activeElement)){e.preventDefault();doQuery();}
+    });
+
+    // 不再自动查询 — 用户手动点"查询"按钮才调用
+
+    // 初始化图表卡片拉伸功能
+    initCardResize('#cmpGrid .chart-box');
+}
+
+/* ── 原生图表卡片拉伸 ── */
+function initCardResize(selector) {
+    var cards = document.querySelectorAll(selector);
+    cards.forEach(function(card) {
+        card.addEventListener('mousemove', function(e) {
+            var rect = card.getBoundingClientRect();
+            var edge = 10;
+            var nearLeft = e.clientX < rect.left + edge;
+            var nearRight = e.clientX > rect.right - edge;
+            var nearBottom = e.clientY > rect.bottom - edge;
+            if (nearLeft && nearBottom) card.style.cursor = 'sw-resize';
+            else if (nearRight && nearBottom) card.style.cursor = 'se-resize';
+            else if (nearLeft) card.style.cursor = 'w-resize';
+            else if (nearRight) card.style.cursor = 'e-resize';
+            else if (nearBottom) card.style.cursor = 's-resize';
+            else card.style.cursor = '';
+        });
+        card.addEventListener('mouseleave', function() { card.style.cursor = ''; });
+        card.addEventListener('mousedown', function(e) {
+            var rect = card.getBoundingClientRect();
+            var edge = 10;
+            var nearLeft = e.clientX < rect.left + edge;
+            var nearRight = e.clientX > rect.right - edge;
+            var nearBottom = e.clientY > rect.bottom - edge;
+            if (!nearLeft && !nearRight && !nearBottom) return;
+            e.preventDefault();
+            var startX = e.clientX, startY = e.clientY;
+            var startW = rect.width, startH = rect.height;
+            var resizeH = nearBottom, resizeW = nearRight, resizeL = nearLeft;
+            card.style.transition = 'none';
+            function onMove(ev) {
+                if (resizeL) card.style.width = Math.max(280, startW - (ev.clientX - startX)) + 'px';
+                else if (resizeW) card.style.width = Math.max(280, startW + (ev.clientX - startX)) + 'px';
+                if (resizeH) {
+                    var newH = Math.max(200, startH + (ev.clientY - startY));
+                    card.style.height = newH + 'px';
+                    var canvasWrap = card.querySelector('.chart-box-canvas');
+                    if (canvasWrap) canvasWrap.style.height = (newH - 100) + 'px';
+                }
+            }
+            function onUp() {
+                card.style.transition = '';
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                var canvas = card.querySelector('canvas');
+                if (canvas && canvas.chartInstance) canvas.chartInstance.resize();
+            }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    });
+}
+
+initPage();
+</script>
+{% endblock %}

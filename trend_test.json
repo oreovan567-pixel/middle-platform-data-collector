@@ -1,0 +1,19 @@
+{
+  "chart_type": "line",
+  "datasets": [
+    {
+      "backgroundColor": "rgba(99,102,241,0.1)",
+      "borderColor": "rgb(99,102,241)",
+      "borderRadius": 0,
+      "borderWidth": 2,
+      "data": [],
+      "fill": true,
+      "label": "\u65e5\u6d3b\u4eba\u6570",
+      "pointHoverRadius": 6,
+      "pointRadius": 3,
+      "tension": 0.3
+    }
+  ],
+  "granularity": "day",
+  "labels": []
+}

@@ -1,0 +1,56 @@
+# 教育平台数据自动采集系统 - 配置文件模板
+# 复制此文件为 config.yaml 并填入真实信息
+# 注意: config.yaml 已被 .gitignore 忽略，请勿提交到版本库
+
+browser:
+  headless: false        # false=有头模式(可见浏览器)  true=无头模式(后台运行)
+  slow_mo: 100           # 操作间隔(毫秒)，方便调试
+  default_timeout: 30000 # 默认等待超时(毫秒)
+
+# 学校配置 - 每个学校在不同平台的名称可能不同
+schools:
+  - name: "示例第一中学"
+    lida_name: "示例第一中学"         # lida平台中的学校名称
+    grafana_name: "示例第一中学"      # Grafana筛选框中的学校名称
+    main_site_name: "示例第一中学"    # 主站运维中的学校名称
+    xueduan: "高中"                   # lida平台学段筛选值，不筛选则设为 null
+    nianji: "高一"                    # lida平台年级筛选值，不筛选则设为 null
+    jibu: "高一"                      # 级部集备统计维度
+    xuebu: "高中"                     # 学部集备统计维度
+
+  - name: "示例第二中学"
+    lida_name: "示例第二中学"
+    grafana_name: "示例第二中学"
+    main_site_name: "示例第二中学"
+    xueduan: "初中"
+    nianji: "初一"
+    jibu: "初中"
+    xuebu: "初中"
+
+# 数据库路径配置
+database:
+  # metabase.db 路径（教师数据源），支持环境变量 METABASE_DB_PATH 覆盖
+  metabase_db_path: "E:/worktools/Qodercode/metabase_sync/data/metabase.db"
+
+# 平台登录凭证
+credentials:
+  lida:
+    url: "https://lida.qimingdaren.com/#/workbench"
+    username: "your_username"
+    password: "your_password"
+
+  grafana:
+    url: "https://grafana.qimingdaren.com/dashboards"
+    password: "your_password"
+    api_token: ""  # 可选: Grafana API Token，优先使用API直连
+
+  main_site:
+    url: "https://www.qimingdaren.com/#/platform/login"
+    username: "your_username"
+    password: "your_password"
+
+  metabase:
+    url: "https://metabase.qimingdaren.com"
+    username: "your_metabase_email"
+    password: "your_metabase_password"
+    dashboard_id: 6
