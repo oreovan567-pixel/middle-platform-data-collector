@@ -10,9 +10,20 @@
 - [models/database.py](file://models/database.py)
 - [models/user.py](file://models/user.py)
 - [web/templates/base.html](file://web/templates/base.html)
+- [web/templates/index.html](file://web/templates/index.html)
+- [web/templates/comparison.html](file://web/templates/comparison.html)
+- [web/templates/school_detail.html](file://web/templates/school_detail.html)
 - [web/static/js/app.js](file://web/static/js/app.js)
 - [web/static/css/style.css](file://web/static/css/style.css)
 </cite>
+
+## 更新摘要
+**变更内容**   
+- 新增全校总览大盘页面（index.html），提供综合数据可视化与实时分析功能
+- 新增多校对比分析页面（comparison.html），支持多维度横向对比与差值分析
+- 新增单校详情分析页面（school_detail.html），提供深度数据分析与预警功能
+- 增强用户交互体验，实现高级筛选、可搜索下拉框、图表卡片拉伸等现代化UI功能
+- 优化数据展示逻辑，支持同比环比分析、短板预警、优先级分层等功能
 
 ## 目录
 1. [简介](#简介)
@@ -37,8 +48,10 @@
 - API 路由文档、请求/响应格式与错误码约定
 - 扩展与自定义指南
 
+**最新更新**：本次更新引入了全新的三页界面重构，包括全校总览大盘、多校对比分析和单校详情分析，大幅提升了用户体验和数据可视化能力。
+
 ## 项目结构
-本项目采用“应用工厂 + 蓝图”的模块化组织方式。Web 层位于 web 目录下，包含路由、模板与静态资源；数据模型位于 models 目录；启动入口在根目录 main.py。
+本项目采用"应用工厂 + 蓝图"的模块化组织方式。Web 层位于 web 目录下，包含路由、模板与静态资源；数据模型位于 models 目录；启动入口在根目录 main.py。
 
 ```mermaid
 graph TB
@@ -49,25 +62,31 @@ B --> E["web/routes/charts.py<br/>图表分析与对比 API"]
 B --> F["models/database.py<br/>SQLite 初始化与连接管理"]
 B --> G["models/user.py<br/>用户模型"]
 B --> H["web/templates/base.html<br/>基础模板"]
-B --> I["web/static/js/app.js<br/>全局工具函数"]
-B --> J["web/static/css/style.css<br/>全局样式"]
+B --> I["web/templates/index.html<br/>全校总览大盘"]
+B --> J["web/templates/comparison.html<br/>多校对比分析"]
+B --> K["web/templates/school_detail.html<br/>单校详情分析"]
+B --> L["web/static/js/app.js<br/>全局工具函数"]
+B --> M["web/static/css/style.css<br/>全局样式"]
 ```
 
-图示来源
+**图示来源**
 - [main.py:1-42](file://main.py#L1-L42)
-- [web/app.py:306-336](file://web/app.py#L306-L336)
+- [web/app.py:348-379](file://web/app.py#L348-L379)
 - [web/routes/main.py:1-143](file://web/routes/main.py#L1-L143)
 - [web/routes/user.py:1-356](file://web/routes/user.py#L1-L356)
-- [web/routes/charts.py:1-120](file://web/routes/charts.py#L1-L120)
+- [web/routes/charts.py:1-800](file://web/routes/charts.py#L1-L800)
 - [models/database.py:201-372](file://models/database.py#L201-L372)
 - [models/user.py:1-113](file://models/user.py#L1-L113)
 - [web/templates/base.html:1-44](file://web/templates/base.html#L1-L44)
+- [web/templates/index.html:1-1016](file://web/templates/index.html#L1-L1016)
+- [web/templates/comparison.html:1-598](file://web/templates/comparison.html#L1-L598)
+- [web/templates/school_detail.html:1-932](file://web/templates/school_detail.html#L1-L932)
 - [web/static/js/app.js:1-23](file://web/static/js/app.js#L1-L23)
 - [web/static/css/style.css:1-120](file://web/static/css/style.css#L1-L120)
 
 章节来源
 - [main.py:1-42](file://main.py#L1-L42)
-- [web/app.py:306-336](file://web/app.py#L306-L336)
+- [web/app.py:348-379](file://web/app.py#L348-L379)
 
 ## 核心组件
 - 应用工厂 create_app：负责日志、Flask 实例化、模板与静态目录配置、数据库初始化、蓝图注册、认证中间件注入。
@@ -76,11 +95,13 @@ B --> J["web/static/css/style.css<br/>全局样式"]
 - 数据模型：User 提供用户 CRUD、凭据获取、序列化方法；database 提供 SQLite 连接上下文与表结构迁移。
 - 模板与静态资源：base.html 作为布局基座，CSS/JS 集中管理，支持响应式与毛玻璃风格。
 
+**最新更新**：新增了三个核心页面模板，每个都包含复杂的前端交互逻辑和数据处理功能。
+
 章节来源
-- [web/app.py:14-336](file://web/app.py#L14-L336)
+- [web/app.py:348-379](file://web/app.py#L348-L379)
 - [web/routes/main.py:1-143](file://web/routes/main.py#L1-L143)
 - [web/routes/user.py:1-356](file://web/routes/user.py#L1-L356)
-- [web/routes/charts.py:1-120](file://web/routes/charts.py#L1-L120)
+- [web/routes/charts.py:1-800](file://web/routes/charts.py#L1-L800)
 - [models/database.py:201-372](file://models/database.py#L201-L372)
 - [models/user.py:1-113](file://models/user.py#L1-L113)
 - [web/templates/base.html:1-44](file://web/templates/base.html#L1-L44)
@@ -113,9 +134,9 @@ R-->>U : HTML/JSON 响应
 end
 ```
 
-图示来源
+**图示来源**
 - [web/app.py:253-304](file://web/app.py#L253-L304)
-- [web/app.py:306-336](file://web/app.py#L306-L336)
+- [web/app.py:348-379](file://web/app.py#L348-L379)
 - [models/database.py:24-48](file://models/database.py#L24-L48)
 
 ## 详细组件分析
@@ -132,11 +153,13 @@ end
   - user_bp：用户列表、当前用户信息、更新、创建、删除、批量导入模板与导入
   - charts_bp：图表筛选选项、平台使用率、多校对比、模块级使用率查询（含 Metabase API 与 SLS 回退）
 
+**最新更新**：charts 蓝图现在支持三个主要页面的路由处理，包括全校总览、多校对比和单校详情。
+
 章节来源
-- [web/app.py:306-336](file://web/app.py#L306-L336)
+- [web/app.py:348-379](file://web/app.py#L348-L379)
 - [web/routes/main.py:1-143](file://web/routes/main.py#L1-L143)
 - [web/routes/user.py:1-356](file://web/routes/user.py#L1-L356)
-- [web/routes/charts.py:1-120](file://web/routes/charts.py#L1-L120)
+- [web/routes/charts.py:1-800](file://web/routes/charts.py#L1-L800)
 
 ### 认证中间件与权限控制
 - 中间件策略：
@@ -163,7 +186,7 @@ CheckSession --> |是| Allow
 Allow --> End(["继续路由处理"])
 ```
 
-图示来源
+**图示来源**
 - [web/app.py:253-304](file://web/app.py#L253-L304)
 
 章节来源
@@ -204,7 +227,7 @@ class User {
 }
 ```
 
-图示来源
+**图示来源**
 - [models/user.py:1-113](file://models/user.py#L1-L113)
 
 章节来源
@@ -231,10 +254,44 @@ class User {
   - CSS 集中于 style.css，提供响应式布局、毛玻璃效果、表格与按钮样式
   - JS 集中于 app.js，提供日期格式化与 Toast 提示工具函数
 
+**最新更新**：新增了三个复杂的页面模板，每个都包含大量的内联样式和JavaScript逻辑。
+
 章节来源
 - [web/templates/base.html:1-44](file://web/templates/base.html#L1-L44)
+- [web/templates/index.html:1-1016](file://web/templates/index.html#L1-L1016)
+- [web/templates/comparison.html:1-598](file://web/templates/comparison.html#L1-L598)
+- [web/templates/school_detail.html:1-932](file://web/templates/school_detail.html#L1-L932)
 - [web/static/css/style.css:1-120](file://web/static/css/style.css#L1-L120)
 - [web/static/js/app.js:1-23](file://web/static/js/app.js#L1-L23)
+
+### 全新界面设计与用户体验
+
+#### 全校总览大盘（index.html）
+- **KPI 卡片区**：展示学校总数、日活/周活/月活人数、总作业提交次数等关键指标
+- **图表区**：包含各校使用率排名、优先级分层占比、全板块均衡度分析、日活人数趋势
+- **多校对比明细**：底部嵌入的详细数据表格，支持分类查看和导出功能
+- **高级筛选**：支持学校类型切换、学段年级学科筛选、日期范围选择
+- **同比环比分析**：自动计算与前期的对比变化，用颜色标识涨跌趋势
+
+#### 多校对比分析（comparison.html）
+- **维度切换**：支持使用率维度、作业板块维度、活跃度维度三种分析视角
+- **双图表展示**：柱状图展示横向对比，雷达图展示均衡度分析
+- **差值分析表**：自动识别最优/最差学校和极差，提供直观的数据洞察
+- **可搜索下拉框**：支持多选学校、分组显示、键盘导航等现代化交互
+- **图表卡片拉伸**：原生实现的图表区域大小调整功能
+
+#### 单校详情分析（school_detail.html）
+- **学校信息头**：显示学校名称、优先级标签、负责人、统计周期等元信息
+- **KPI 指标卡**：5列布局展示平台使用率、活跃人数、作业次数等核心指标
+- **短板预警**：自动识别低于直营校均值的板块，提供改进建议
+- **周期趋势分析**：支持使用率、活跃度、作业量三种趋势图表
+- **业务板块拆解**：水平条形图展示各业务模块的使用情况
+- **偏好记忆**：基于用户ID的本地存储，记住用户的筛选偏好
+
+**章节来源**
+- [web/templates/index.html:1-1016](file://web/templates/index.html#L1-L1016)
+- [web/templates/comparison.html:1-598](file://web/templates/comparison.html#L1-L598)
+- [web/templates/school_detail.html:1-932](file://web/templates/school_detail.html#L1-L932)
 
 ### 实时监控系统与 SSE 事件推送
 - 现状说明：
@@ -245,22 +302,21 @@ class User {
   - 前端使用 EventSource 订阅，维护任务状态机（pending/running/completed/failed）
   - 结合 collect_tasks 表记录任务进度，避免重复计算
 
-[本节为概念性说明，不涉及具体源码，故无“章节来源”]
+[本节为概念性说明，不涉及具体源码，故无"章节来源"]
 
 ### 前端交互与用户体验
-- 登录页：
-  - 内嵌模板渲染表单，使用 fetch 提交 /login，成功后根据 next 参数跳转
-  - 失败时 alert 提示错误信息
-- 全局工具：
-  - formatDate 用于日期格式化
-  - showToast 用于消息提示（成功/错误/信息）
-- 表单验证与反馈：
-  - 前端使用 required 属性与禁用按钮防止重复提交
-  - 后端对必填字段进行校验并返回结构化错误信息
+- **可搜索下拉框组件**：统一的搜索下拉实现，支持分组、高亮、键盘导航
+- **图表卡片拉伸**：原生JavaScript实现的拖拽调整功能
+- **偏好记忆系统**：基于localStorage的用户偏好存储，支持用户隔离
+- **加载状态管理**：统一的loading遮罩和空状态处理
+- **响应式设计**：适配不同屏幕尺寸的移动端友好布局
 
-章节来源
-- [web/app.py:27-250](file://web/app.py#L27-L250)
-- [web/static/js/app.js:1-23](file://web/static/js/app.js#L1-L23)
+**最新更新**：新的界面设计包含了大量现代化的前端交互功能，显著提升了用户体验。
+
+**章节来源**
+- [web/templates/index.html:800-1016](file://web/templates/index.html#L800-L1016)
+- [web/templates/comparison.html:428-598](file://web/templates/comparison.html#L428-L598)
+- [web/templates/school_detail.html:280-932](file://web/templates/school_detail.html#L280-L932)
 
 ## 依赖关系分析
 - 启动依赖：
@@ -284,18 +340,18 @@ RoutesCharts --> ModelsDB
 RoutesCharts --> ConfigLoader["config/config_loader.py"]
 ```
 
-图示来源
+**图示来源**
 - [main.py:1-42](file://main.py#L1-L42)
-- [web/app.py:306-336](file://web/app.py#L306-L336)
+- [web/app.py:348-379](file://web/app.py#L348-L379)
 - [web/routes/main.py:1-143](file://web/routes/main.py#L1-L143)
 - [web/routes/user.py:1-356](file://web/routes/user.py#L1-L356)
-- [web/routes/charts.py:1-120](file://web/routes/charts.py#L1-L120)
+- [web/routes/charts.py:1-800](file://web/routes/charts.py#L1-L800)
 - [models/database.py:201-372](file://models/database.py#L201-L372)
 - [models/user.py:1-113](file://models/user.py#L1-L113)
 
 章节来源
 - [main.py:1-42](file://main.py#L1-L42)
-- [web/app.py:306-336](file://web/app.py#L306-L336)
+- [web/app.py:348-379](file://web/app.py#L348-L379)
 
 ## 性能与扩展性
 - 数据库：
@@ -310,7 +366,9 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
   - 新增蓝图只需在 create_app 中注册
   - 新增 API 遵循统一错误码与 JSON 响应格式
 
-[本节为通用建议，不涉及具体源码，故无“章节来源”]
+**最新更新**：新的界面设计在前端层面进行了大量优化，包括懒加载、局部更新等性能优化措施。
+
+[本节为通用建议，不涉及具体源码，故无"章节来源"]
 
 ## 故障排查指南
 - 登录问题：
@@ -325,16 +383,22 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
 - Excel 导入失败：
   - 确认上传文件格式为 .xlsx
   - 检查表头与示例行是否符合模板规范
+- 新页面加载问题：
+  - 检查浏览器控制台是否有JavaScript错误
+  - 确认API接口返回正确的数据格式
+  - 验证Chart.js图表库是否正确加载
 
-章节来源
+**章节来源**
 - [web/app.py:253-304](file://web/app.py#L253-L304)
 - [web/routes/user.py:226-339](file://web/routes/user.py#L226-L339)
 - [models/database.py:24-48](file://models/database.py#L24-L48)
 
 ## 结论
-本项目采用清晰的工厂+蓝图架构，具备完善的认证中间件与用户管理功能。当前密码存储为明文，建议尽快升级为安全哈希。实时监控尚未实现 SSE，可通过流式事件增强用户体验。模板与静态资源组织良好，便于后续扩展与维护。
+本项目采用清晰的工厂+蓝图架构，具备完善的认证中间件与用户管理功能。当前密码存储为明文，建议尽快升级为安全哈希。实时监控尚未实现 SSE，可通过流式事件增强用户体验。
 
-[本节为总结性内容，不涉及具体源码，故无“章节来源”]
+**重大更新**：本次界面重构引入了三个全新的分析页面，提供了强大的数据可视化和交互式分析功能。新的设计采用了现代化的UI组件，包括可搜索下拉框、图表卡片拉伸、偏好记忆等特性，显著提升了用户体验。模板与静态资源组织良好，便于后续扩展与维护。
+
+[本节为总结性内容，不涉及具体源码，故无"章节来源"]
 
 ## 附录：API 路由文档
 
@@ -355,12 +419,21 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
   - 描述：退出登录，清空 session
   - 响应：302 重定向到 /login
 
-章节来源
+**章节来源**
 - [web/app.py:265-292](file://web/app.py#L265-L292)
 
 ### 仪表盘与页面路由
 - GET /
-  - 描述：仪表盘首页
+  - 描述：全校总览大盘首页
+  - 响应：HTML
+- GET /comparison
+  - 描述：多校对比分析页面
+  - 响应：HTML
+- GET /school
+  - 描述：单校详情入口 — 按负责人展示所属学校
+  - 响应：HTML 或 302 重定向
+- GET /school/<school_id>
+  - 描述：单校详情分析页面
   - 响应：HTML
 - GET /collect
   - 描述：数据采集页面
@@ -375,8 +448,9 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
   - 描述：个人设置页面
   - 响应：HTML
 
-章节来源
+**章节来源**
 - [web/routes/main.py:41-143](file://web/routes/main.py#L41-L143)
+- [web/routes/charts.py:565-617](file://web/routes/charts.py#L565-L617)
 
 ### 仪表盘数据 API
 - GET /api/dashboard
@@ -389,7 +463,7 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
     - 401：未登录
     - 403：权限不足（部分场景）
 
-章节来源
+**章节来源**
 - [web/routes/main.py:87-105](file://web/routes/main.py#L87-L105)
 
 ### 月度历史 API
@@ -405,7 +479,7 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
     - 401：未登录
     - 403：非管理员访问受限学校
 
-章节来源
+**章节来源**
 - [web/routes/main.py:108-128](file://web/routes/main.py#L108-L128)
 
 ### 用户管理 API
@@ -477,7 +551,7 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
     - 400：文件格式错误或无有效数据行
     - 403：需要管理员权限
 
-章节来源
+**章节来源**
 - [web/routes/user.py:15-356](file://web/routes/user.py#L15-L356)
 
 ### 图表与分析 API
@@ -516,15 +590,41 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
   - 错误码：
     - 400：时间范围为必填项
     - 500：内部错误
-- GET /comparison
-  - 描述：多校使用率对比页面
-  - 响应：HTML
+- GET /api/charts/module-usage
+  - 描述：模块级使用率查询（Metabase API 与 SLS 回退）
+  - 查询参数：
+    - start_date: string（必填）
+    - end_date: string（必填）
+    - school_id: string（可选，支持逗号分隔的多校ID）
+    - types: string（可选，学校类型过滤）
+    - stage: string（可选）
+    - grade: string（可选）
+    - subject: string（可选）
+  - 成功响应：
+    - { columns: array, rows: array, total_schools: number, source: string }
+  - 错误码：
+    - 400：时间范围为必填项
+    - 500：内部错误
+- GET /api/charts/trend
+  - 描述：趋势数据查询
+  - 查询参数：
+    - start_date: string（必填）
+    - end_date: string（必填）
+    - school_id: string（可选）
+    - group_by: string（可选，xueduan/subject）
+    - metric: string（可选，daily_d21_uv）
+  - 成功响应：
+    - { labels: array, datasets: array, chart_type: string }
+  - 错误码：
+    - 400：时间范围为必填项
+    - 500：内部错误
 
-章节来源
+**章节来源**
 - [web/routes/charts.py:63-120](file://web/routes/charts.py#L63-L120)
 - [web/routes/charts.py:323-347](file://web/routes/charts.py#L323-L347)
 - [web/routes/charts.py:451-562](file://web/routes/charts.py#L451-L562)
 - [web/routes/charts.py:565-568](file://web/routes/charts.py#L565-L568)
+- [web/routes/charts.py:641-793](file://web/routes/charts.py#L641-L793)
 
 ### 错误码约定
 - 200：成功
@@ -535,4 +635,4 @@ RoutesCharts --> ConfigLoader["config/config_loader.py"]
 - 404：资源不存在
 - 500：服务器内部错误
 
-[本节为通用约定，不涉及具体源码，故无“章节来源”]
+[本节为通用约定，不涉及具体源码，故无"章节来源"]

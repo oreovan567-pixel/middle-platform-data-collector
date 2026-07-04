@@ -330,10 +330,43 @@ function switchExportTab(btn, tab) {
 function doExportAction(format) {
     if (format === 'excel') {
         window.location.href = '/api/export/csv';
+        closeModal('exportModal');
+    } else if (format === 'png') {
+        var el = document.getElementById('exportContent');
+        if (!el) {
+            alert('该页面暂不支持图表导出');
+            closeModal('exportModal');
+            return;
+        }
+        closeModal('exportModal');
+        // 临时隐藏不需要导出的元素
+        var actionBars = document.querySelectorAll('.action-bar');
+        actionBars.forEach(function(b) { b.style.display = 'none'; });
+
+        if (typeof html2canvas === 'undefined') {
+            alert('图表导出库加载中，请稍后再试');
+            actionBars.forEach(function(b) { b.style.display = ''; });
+            return;
+        }
+        html2canvas(el, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            logging: false
+        }).then(function(canvas) {
+            actionBars.forEach(function(b) { b.style.display = ''; });
+            var link = document.createElement('a');
+            link.download = '单校详情_' + (document.getElementById('schoolTitle')?.textContent || 'report') + '_' + new Date().toISOString().slice(0,10) + '.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }).catch(function(err) {
+            actionBars.forEach(function(b) { b.style.display = ''; });
+            alert('导出失败: ' + err.message);
+        });
     } else {
         alert('该格式导出功能开发中');
+        closeModal('exportModal');
     }
-    closeModal('exportModal');
 }
 
 // ── 阈值保存 ──

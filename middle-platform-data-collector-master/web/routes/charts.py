@@ -658,14 +658,14 @@ async def _query_metabase_modules(
 
     # 构建 school_id → (display_name, type, priority, owner_id) 的本地映射
     all_local = School.get_all()
-    # 构建 owner_id → 手机号 映射（仅直营校有负责人）
+    # 构建 owner_id → 姓名 映射（仅直营校有负责人）
     owner_map = {}
     for s in all_local:
         if s.owner_id:
             from models.user import User
             u = User.get_by_id(s.owner_id)
             if u:
-                owner_map[s.id] = u.username
+                owner_map[s.owner_id] = u.display_name or u.username
     school_meta = {
         s.metabase_school_id: (s.display_name or s.name, s.type or "", s.priority or "中", s.owner_id or 0)
         for s in all_local if s.metabase_school_id
@@ -1142,10 +1142,12 @@ def _get_grafana_auth() -> dict:
         return None
 
 
-def _query_sls_batch(start_ts_ms: int, end_ts_ms: int) -> dict:
+def _query_sls_batch(start_ts_ms: int, end_ts_ms: int, school_ids: list = None) -> dict:
     """批量查询 SLS 获取所有模块的活跃教师数
 
     将 8 个模块的查询合并为一次 HTTP 请求，提高效率。
+
+    school_ids: 可选，限定学校 ID 列表（用于 stage/grade/subject 筛选时过滤）
 
     返回: {module_key: {school_id: active_count}}
     """
@@ -1157,6 +1159,13 @@ def _query_sls_batch(start_ts_ms: int, end_ts_ms: int) -> dict:
         logger.warning("Grafana 未配置有效凭证，跳过 SLS 批量查询")
         return {}
 
+    # 构建学校 ID 过滤条件
+    if school_ids:
+        sid_parts = " or ".join([f'tianli_school_id:"{sid}"' for sid in school_ids])
+        school_filter = f' and ({sid_parts})'
+    else:
+        school_filter = ' and not tianli_school_id:"-"'
+
     queries = []
     for mod in _MODULE_DEFS:
         key = mod["key"]
@@ -1164,7 +1173,7 @@ def _query_sls_batch(start_ts_ms: int, end_ts_ms: int) -> dict:
         url_filter = f' and url:{url}*' if url else ""
         query = (
             f'* and host:"research-api.qimingdaren.com"'
-            f' and not tianli_school_id:"-"'
+            f'{school_filter}'
             f'{url_filter}'
             f' | SELECT tianli_school_id, COUNT(DISTINCT tianli_user_id) as count'
             f' GROUP BY tianli_school_id'
@@ -1211,22 +1220,309 @@ def _query_sls_batch(start_ts_ms: int, end_ts_ms: int) -> dict:
         return {}
 
 
+def _query_sls_trend(start_date, end_date, school_ids=None):
+    """Query SLS for daily UV data (fallback when metabase.db is stale)
+
+    Returns: {date_str: uv_count}
+    """
+    import os
+    import urllib.request
+    from datetime import datetime
+
+    auth_headers = _get_grafana_auth()
+    if not auth_headers:
+        return {}
+
+    start_ts_ms = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
+    end_ts_ms = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000) + 86399000
+
+    if school_ids and len(school_ids) == 1:
+        sid_filter = f' and tianli_school_id:"{school_ids[0]}"'
+    elif school_ids and len(school_ids) > 1:
+        sid_parts = " or ".join([f'tianli_school_id:"{sid}"' for sid in school_ids])
+        sid_filter = f' and ({sid_parts})'
+    else:
+        sid_filter = ' and not tianli_school_id:"-"'
+
+    query = (
+        f'* and host:"research-api.qimingdaren.com"'
+        f'{sid_filter}'
+        f' and tianli_user_id:*'
+        f" | SELECT date_format(__time__, '%Y-%m-%d') as dt, "
+        f'COUNT(DISTINCT tianli_user_id) as uv '
+        f'GROUP BY dt ORDER BY dt'
+    )
+
+    payload = {
+        "queries": [{
+            "refId": "A",
+            "datasource": SLS_DATASOURCE,
+            "query": query,
+            "type": "logstore",
+            "logstore": "nginx-ingress",
+        }],
+        "from": str(start_ts_ms),
+        "to": str(end_ts_ms),
+    }
+
+    try:
+        req = urllib.request.Request(
+            f"{GRAFANA_BASE}/api/ds/query",
+            data=json.dumps(payload).encode(),
+            headers={**auth_headers, "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode())
+
+        result = {}
+        for ref_data in data.get("results", {}).values():
+            for frame in ref_data.get("frames", []):
+                values = frame.get("data", {}).get("values", [])
+                if len(values) >= 2:
+                    for i in range(len(values[0])):
+                        dt_str = str(values[0][i])[:10]
+                        uv = int(values[1][i]) if values[1][i] else 0
+                        result[dt_str] = uv
+        return result
+    except Exception as e:
+        logger.warning("SLS trend query failed: %s", e)
+        return {}
+
+
+def _query_sls_trend_xueduan(start_date, end_date):
+    """Query SLS for daily UV grouped by xueduan (3 separate queries with school_id filtering)
+
+    Uses teacher_base from metabase.db to get school->xueduan mapping,
+    then queries SLS per-xueduan.
+
+    Returns: {date_str: {uv_all: N, uv_gz: N, uv_cz: N, uv_xx: N}}
+    """
+    import os
+    import urllib.request
+    from datetime import datetime
+
+    auth_headers = _get_grafana_auth()
+    if not auth_headers:
+        return {}
+
+    # Get school->xueduan mapping from metabase.db
+    try:
+        conn = _get_mb_conn()
+        from models.school import School as LocalSchool
+        all_local = LocalSchool.get_all()
+        all_sids = [s.metabase_school_id for s in all_local if s.metabase_school_id]
+        if not all_sids:
+            return {}
+
+        # Group school IDs by xueduan
+        xd_sids = {"gz": [], "cz": [], "xx": []}
+        for s in all_local:
+            if not s.metabase_school_id:
+                continue
+            sid = s.metabase_school_id
+            # Check teacher_base stage_names for this school
+            row = conn.execute(
+                "SELECT stage_names FROM teacher_base WHERE CAST(school_id AS TEXT) = ? AND state = 1 LIMIT 1",
+                (str(sid),)
+            ).fetchone()
+            if row and row["stage_names"]:
+                sn = row["stage_names"]
+                if "高中部" in sn:
+                    xd_sids["gz"].append(sid)
+                if "初中部" in sn:
+                    xd_sids["cz"].append(sid)
+                if "小学部" in sn:
+                    xd_sids["xx"].append(sid)
+    except Exception as e:
+        logger.warning("xueduan school mapping failed: %s", e)
+        return {}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    start_ts_ms = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
+    end_ts_ms = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000) + 86399000
+
+    # Build multiple queries (one per xueduan + overall)
+    queries = []
+    # Overall (all schools)
+    sid_ph = " or ".join([f'tianli_school_id:"{sid}"' for sid in all_sids])
+    queries.append({
+        "refId": "all",
+        "datasource": SLS_DATASOURCE,
+        "query": (
+            f'* and host:"research-api.qimingdaren.com" and tianli_user_id:*'
+            f' and ({sid_ph})'
+            f" | SELECT date_format(__time__, '%Y-%m-%d') as dt, "
+            f'COUNT(DISTINCT tianli_user_id) as uv GROUP BY dt ORDER BY dt'
+        ),
+        "type": "logstore",
+        "logstore": "nginx-ingress",
+    })
+    for xd_key, sids in [("gz", xd_sids["gz"]), ("cz", xd_sids["cz"]), ("xx", xd_sids["xx"])]:
+        if not sids:
+            continue
+        sid_ph_xd = " or ".join([f'tianli_school_id:"{sid}"' for sid in sids])
+        queries.append({
+            "refId": xd_key,
+            "datasource": SLS_DATASOURCE,
+            "query": (
+                f'* and host:"research-api.qimingdaren.com" and tianli_user_id:*'
+                f' and ({sid_ph_xd})'
+                f" | SELECT date_format(__time__, '%Y-%m-%d') as dt, "
+                f'COUNT(DISTINCT tianli_user_id) as uv GROUP BY dt ORDER BY dt'
+            ),
+            "type": "logstore",
+            "logstore": "nginx-ingress",
+        })
+
+    payload = {
+        "queries": queries,
+        "from": str(start_ts_ms),
+        "to": str(end_ts_ms),
+    }
+
+    try:
+        req = urllib.request.Request(
+            f"{GRAFANA_BASE}/api/ds/query",
+            data=json.dumps(payload).encode(),
+            headers={**auth_headers, "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode())
+
+        result = {}  # {date: {uv_all, uv_gz, uv_cz, uv_xx}}
+        ref_key_map = {"all": "uv_all", "gz": "uv_gz", "cz": "uv_cz", "xx": "uv_xx"}
+        for ref_id, ref_data in data.get("results", {}).items():
+            uv_key = ref_key_map.get(ref_id, "")
+            if not uv_key:
+                continue
+            for frame in ref_data.get("frames", []):
+                values = frame.get("data", {}).get("values", [])
+                if len(values) >= 2:
+                    for i in range(len(values[0])):
+                        dt_str = str(values[0][i])[:10]
+                        uv = int(values[1][i]) if values[1][i] else 0
+                        if dt_str not in result:
+                            result[dt_str] = {"uv_all": 0, "uv_gz": 0, "uv_cz": 0, "uv_xx": 0}
+                        result[dt_str][uv_key] = uv
+        return result
+    except Exception as e:
+        logger.warning("SLS xueduan trend query failed: %s", e)
+        return {}
+
+
+# ═══════════════════════════════════════════
+#  D21 每日 UV 查询（与 KPI 卡片数据一致）
+# ═══════════════════════════════════════════
+
+async def _query_d21_period_sum(school_names: list, start_date: str, end_date: str) -> float:
+    """Query D21 Card 370 for each school over the full period, return sum of UVs.
+    This matches KPI card 2 calculation: sum of per-school D21 UV.
+    """
+    from scrapers.api_lida import ApiLidaScraper, CARD_D21_UV
+    total = 0.0
+    async with ApiLidaScraper() as scraper:
+        if not await scraper._login():
+            logger.warning("[D21] Login failed")
+            return 0.0
+        sem = asyncio.Semaphore(20)
+        async def _q(name):
+            async with sem:
+                val = await scraper._query_d21_dashcard(CARD_D21_UV, name, start_date, end_date)
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return 0.0
+        results = await asyncio.gather(*[_q(n) for n in school_names])
+        total = sum(results)
+    return total
+
+
+async def _query_d21_daily_school(school_name: str, start_date: str, end_date: str) -> dict:
+    """Query D21 Card 370 for a single school for each day. Returns {date_str: uv}."""
+    from scrapers.api_lida import ApiLidaScraper, CARD_D21_UV
+    from datetime import timedelta
+    sdt = datetime.strptime(start_date, "%Y-%m-%d").date()
+    edt = datetime.strptime(end_date, "%Y-%m-%d").date()
+    dates = []
+    d = sdt
+    while d <= edt:
+        dates.append(d.strftime("%Y-%m-%d"))
+        d += timedelta(days=1)
+
+    result = {}
+    async with ApiLidaScraper() as scraper:
+        if not await scraper._login():
+            return {}
+        sem = asyncio.Semaphore(10)
+        async def _q(ds):
+            async with sem:
+                val = await scraper._query_d21_dashcard(CARD_D21_UV, school_name, ds, ds)
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return 0.0
+        values = await asyncio.gather(*[_q(ds) for ds in dates])
+        for ds, v in zip(dates, values):
+            result[ds] = v
+    return result
+
+
+async def _query_d21_daily_multi(school_names: list, start_date: str, end_date: str) -> dict:
+    """Query D21 Card 370 for multiple schools for each day. Returns {date_str: total_uv}.
+    Used for overview trend chart to match KPI card 2.
+    """
+    from scrapers.api_lida import ApiLidaScraper, CARD_D21_UV
+    from datetime import timedelta
+    sdt = datetime.strptime(start_date, "%Y-%m-%d").date()
+    edt = datetime.strptime(end_date, "%Y-%m-%d").date()
+    dates = []
+    d = sdt
+    while d <= edt:
+        dates.append(d.strftime("%Y-%m-%d"))
+        d += timedelta(days=1)
+
+    result = {}
+    async with ApiLidaScraper() as scraper:
+        if not await scraper._login():
+            return {}
+        sem = asyncio.Semaphore(25)
+        async def _q(name, ds):
+            async with sem:
+                val = await scraper._query_d21_dashcard(CARD_D21_UV, name, ds, ds)
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return 0.0
+        # For each day, query all schools in parallel
+        for ds in dates:
+            vals = await asyncio.gather(*[_q(n, ds) for n in school_names])
+            result[ds] = sum(vals)
+    return result
+
+
 @charts_bp.route("/api/charts/trend")
 def trend_chart():
-    """全校周期趋势 API — 总日活人数趋势
+    """全校周期趋势 API — 总日活人数趋势 / 按学段分组使用率趋势
 
     根据筛选时间范围自动选择聚合粒度:
     - <= 31天: 按天聚合，返回折线图
     - 32-90天: 按周聚合，返回柱状图
     - > 90天: 按月聚合，返回柱状图
 
-    单一维度: 总日活人数（UV）
+    参数:
+      group_by=xueduan: 按学段分组返回使用率趋势（4维度：平台总体/高中/初中/小学）
+      school_id: 单校日活人数趋势
     """
     start_date = request.args.get("start_date", "")
     end_date = request.args.get("end_date", "")
     school_id_filter = request.args.get("school_id", "")
     types = request.args.get("types", "")
     stage = request.args.get("stage", "")
+    group_by = request.args.get("group_by", "")
 
     if not start_date or not end_date:
         return jsonify({"error": "时间范围为必填项"}), 400
@@ -1258,11 +1554,413 @@ def trend_chart():
     else:
         date_group = "strftime('%Y-%m', substr(d.stat_date,1,10))"
 
+    # ── 生成完整日期标签（修复末尾日期缺失）──
+    from datetime import timedelta
+    all_labels = []
+    if granularity == "day":
+        d = start_dt
+        while d <= end_dt:
+            all_labels.append(d.strftime("%Y-%m-%d"))
+            d += timedelta(days=1)
+    elif granularity == "week":
+        d = start_dt
+        while d <= end_dt:
+            all_labels.append(d.strftime("%Y-W%W"))
+            d += timedelta(days=7)
+    else:
+        d = start_dt.replace(day=1)
+        while d <= end_dt:
+            all_labels.append(d.strftime("%Y-%m"))
+            if d.month == 12:
+                d = d.replace(year=d.year + 1, month=1)
+            else:
+                d = d.replace(month=d.month + 1)
+
+    def _fill_missing_dates(labels, datasets):
+        """对缺失日期补 0，确保完整日期范围"""
+        label_set = set(labels)
+        missing = [l for l in all_labels if l not in label_set]
+        if not missing:
+            return labels, datasets
+        # 按 all_labels 顺序重建
+        old_data = {l: {} for l in labels}
+        for ds in datasets:
+            for i, l in enumerate(labels):
+                old_data[l][ds["label"]] = ds["data"][i] if i < len(ds["data"]) else 0
+        new_datasets = []
+        for ds in datasets:
+            new_data = [old_data.get(l, {}).get(ds["label"], 0) for l in all_labels]
+            new_ds = dict(ds)
+            new_ds["data"] = new_data
+            new_datasets.append(new_ds)
+        return list(all_labels), new_datasets
+
     # 获取学校列表
     conn = None
     try:
         conn = _get_mb_conn()
 
+        # ── 按学段分组模式（全校使用率趋势，仅无单校筛选时）──
+        if group_by == "xueduan" and not school_id_filter:
+            from models.school import School as LocalSchool
+            from collections import defaultdict
+            all_local = LocalSchool.get_all()
+            all_sids = [s.metabase_school_id for s in all_local if s.metabase_school_id]
+            if not all_sids:
+                return jsonify({"labels": all_labels, "datasets": [],
+                                "chart_type": chart_type, "granularity": granularity})
+
+            sid_ph = ",".join(["?"] * len(all_sids))
+
+            # 查询每个学段的总教师数（基于 teacher_base.stage_names）
+            xd_total = {}
+            total_sql = f"""
+                SELECT
+                    COUNT(DISTINCT teacher_id) AS cnt_all,
+                    COUNT(DISTINCT CASE WHEN ',' || stage_names || ',' LIKE '%,高中部,%' THEN teacher_id END) AS cnt_gz,
+                    COUNT(DISTINCT CASE WHEN ',' || stage_names || ',' LIKE '%,初中部,%' THEN teacher_id END) AS cnt_cz,
+                    COUNT(DISTINCT CASE WHEN ',' || stage_names || ',' LIKE '%,小学部,%' THEN teacher_id END) AS cnt_xx
+                FROM teacher_base
+                WHERE state = 1 AND CAST(school_id AS TEXT) IN ({sid_ph})
+            """
+            trow = conn.execute(total_sql, all_sids).fetchone()
+            xd_total = {
+                "_all": max(trow["cnt_all"], 1),
+                "高中": max(trow["cnt_gz"], 1),
+                "初中": max(trow["cnt_cz"], 1),
+                "小学": max(trow["cnt_xx"], 1),
+            }
+
+            # 单次查询：日活UV按学段条件聚合（避免4次重查询）
+            uv_sql = f"""
+                SELECT {date_group} AS period,
+                       COUNT(DISTINCT d.tianli_user_id) AS uv_all,
+                       COUNT(DISTINCT CASE WHEN EXISTS (
+                           SELECT 1 FROM teacher_base t2
+                           WHERE t2.teacher_id = d.tianli_user_id
+                             AND CAST(t2.school_id AS TEXT) = CAST(d.tianli_school_id AS TEXT)
+                             AND t2.state = 1
+                             AND ',' || t2.stage_names || ',' LIKE '%,高中部,%'
+                       ) THEN d.tianli_user_id END) AS uv_gz,
+                       COUNT(DISTINCT CASE WHEN EXISTS (
+                           SELECT 1 FROM teacher_base t2
+                           WHERE t2.teacher_id = d.tianli_user_id
+                             AND CAST(t2.school_id AS TEXT) = CAST(d.tianli_school_id AS TEXT)
+                             AND t2.state = 1
+                             AND ',' || t2.stage_names || ',' LIKE '%,初中部,%'
+                       ) THEN d.tianli_user_id END) AS uv_cz,
+                       COUNT(DISTINCT CASE WHEN EXISTS (
+                           SELECT 1 FROM teacher_base t2
+                           WHERE t2.teacher_id = d.tianli_user_id
+                             AND CAST(t2.school_id AS TEXT) = CAST(d.tianli_school_id AS TEXT)
+                             AND t2.state = 1
+                             AND ',' || t2.stage_names || ',' LIKE '%,小学部,%'
+                       ) THEN d.tianli_user_id END) AS uv_xx
+                FROM dws_ingress_teacher_day d
+                WHERE d.host = 'research-api.qimingdaren.com'
+                  AND d.school_name NOT LIKE '%启鸣达人%'
+                  AND d.school_name IS NOT NULL AND d.school_name <> ''
+                  AND d.tianli_user_id IS NOT NULL AND d.tianli_user_id <> '' AND d.tianli_user_id <> '-'
+                  AND CAST(d.tianli_school_id AS TEXT) IN ({sid_ph})
+                  AND substr(d.stat_date,1,10) >= ? AND substr(d.stat_date,1,10) <= ?
+                  AND d.tianli_user_id IN (
+                      SELECT t.teacher_id FROM teacher_base t
+                      WHERE CAST(t.school_id AS TEXT) = CAST(d.tianli_school_id AS TEXT)
+                        AND t.state = 1
+                  )
+                GROUP BY {date_group}
+                ORDER BY period
+            """
+            uv_rows = conn.execute(uv_sql, all_sids + [start_date, end_date]).fetchall()
+
+            # ── SLS fallback: fill missing dates from live SLS data ──
+            period_data = {r["period"]: r for r in uv_rows}
+            missing_dates = [l for l in all_labels if l not in period_data]
+            if missing_dates and granularity == "day":
+                sls_xd = _query_sls_trend_xueduan(start_date, end_date)
+                # Compute per-key correction factors from overlapping dates
+                xd_keys = ["uv_all", "uv_gz", "uv_cz", "uv_xx"]
+                corrections = {}
+                for xk in xd_keys:
+                    ratios = []
+                    for dt in period_data:
+                        if dt in sls_xd and sls_xd[dt].get(xk, 0) > 0:
+                            mb_val = period_data[dt][xk] if xk in period_data[dt].keys() else 0
+                            if mb_val > 0:
+                                ratios.append(mb_val / sls_xd[dt][xk])
+                    corrections[xk] = sum(ratios) / len(ratios) if ratios else 1.0
+                for dt_str in missing_dates:
+                    if dt_str in sls_xd:
+                        corrected = {}
+                        for xk in xd_keys:
+                            corrected[xk] = round(sls_xd[dt_str].get(xk, 0) * corrections.get(xk, 1.0))
+                        period_data[dt_str] = corrected
+
+            # 构建 4 个 dataset
+            xd_map = [
+                ("平台总体使用率", "uv_all", xd_total["_all"], "rgb(173,232,130)", "rgba(173,232,130,0.08)"),
+                ("高中使用率", "uv_gz", xd_total["高中"], "rgb(99,102,241)", "rgba(99,102,241,0.08)"),
+                ("初中使用率", "uv_cz", xd_total["初中"], "rgb(251,191,36)", "rgba(251,191,36,0.08)"),
+                ("小学使用率", "uv_xx", xd_total["小学"], "rgb(168,85,247)", "rgba(168,85,247,0.08)"),
+            ]
+            datasets = []
+            for label, uv_key, total, color, bg in xd_map:
+                data = []
+                for l in all_labels:
+                    if l in period_data:
+                        val = period_data[l][uv_key] if isinstance(period_data[l], dict) else period_data[l][uv_key]
+                        data.append(round(val / total * 100, 2))
+                    else:
+                        data.append(0)
+                datasets.append({
+                    "label": label,
+                    "data": data,
+                    "borderColor": color,
+                    "backgroundColor": bg,
+                    "fill": False,
+                    "tension": 0.3,
+                    "borderWidth": 2,
+                    "pointRadius": 3,
+                    "pointHoverRadius": 6,
+                })
+
+            return jsonify({
+                "labels": all_labels,
+                "datasets": datasets,
+                "chart_type": chart_type,
+                "granularity": granularity,
+            })
+
+        # ── 单校 + xueduan 模式：通过 Card 374 API 查询学段使用率趋势 ──
+        if group_by == "xueduan" and school_id_filter and granularity == "day":
+            # 获取学校名称
+            _sname_xd = ""
+            try:
+                from models.school import School as _SX
+                _all_sx = _SX.get_all()
+                _sobj_xd = next((s for s in _all_sx if s.metabase_school_id == school_id_filter), None)
+                if _sobj_xd:
+                    _sname_xd = _sobj_xd.name or _sobj_xd.display_name
+            except Exception:
+                pass
+
+            if _sname_xd:
+                # 通过 Card 374 API 查询每天各学段使用率
+                from scrapers.api_lida import ApiLidaScraper
+                _xd_stages = [
+                    ("平台总体使用率", "", "rgb(173,232,130)", "rgba(173,232,130,0.08)"),
+                    ("高中使用率", "高中部", "rgb(99,102,241)", "rgba(99,102,241,0.08)"),
+                    ("初中使用率", "初中部", "rgb(251,191,36)", "rgba(251,191,36,0.08)"),
+                    ("小学使用率", "小学部", "rgb(168,85,247)", "rgba(168,85,247,0.08)"),
+                ]
+
+                async def _query_xd_rates():
+                    """查询每天每个学段的使用率"""
+                    from datetime import timedelta as _td
+                    sdt = datetime.strptime(start_date, "%Y-%m-%d").date()
+                    edt = datetime.strptime(end_date, "%Y-%m-%d").date()
+                    dates = []
+                    d = sdt
+                    while d <= edt:
+                        dates.append(d.strftime("%Y-%m-%d"))
+                        d += _td(days=1)
+
+                    result = {label: {} for label, _, _, _ in _xd_stages}
+                    async with ApiLidaScraper() as scraper:
+                        if not await scraper._login():
+                            return result
+                        sem = asyncio.Semaphore(8)
+
+                        async def _q(ds, label, stage):
+                            async with sem:
+                                rate = await scraper._query_d21_usage_rate(
+                                    _sname_xd, ds, ds, stage
+                                )
+                            return label, ds, rate
+
+                        tasks = []
+                        for ds in dates:
+                            for label, stage, _, _ in _xd_stages:
+                                tasks.append(_q(ds, label, stage))
+
+                        values = await asyncio.gather(*tasks)
+                        for label, ds, rate in values:
+                            result[label][ds] = rate
+                    return result
+
+                try:
+                    xd_rates = asyncio.run(_query_xd_rates())
+                    logger.info("[Trend-xueduan] Card 374 rates for '%s': %s",
+                                _sname_xd,
+                                {k: {d: v for d, v in vals.items() if v > 0}
+                                 for k, vals in xd_rates.items()})
+
+                    xd_datasets_single = []
+                    for label, stage, color, bg in _xd_stages:
+                        data = [xd_rates.get(label, {}).get(l, 0) for l in all_labels]
+                        xd_datasets_single.append({
+                            "label": label, "data": data,
+                            "borderColor": color, "backgroundColor": bg,
+                            "fill": False, "tension": 0.3, "borderWidth": 2,
+                            "pointRadius": 3, "pointHoverRadius": 6,
+                        })
+
+                    return jsonify({
+                        "labels": all_labels,
+                        "datasets": xd_datasets_single,
+                        "chart_type": chart_type,
+                        "granularity": granularity,
+                    })
+                except Exception as e:
+                    logger.warning("[Trend-xueduan] Card 374 API failed for %s: %s, falling back to metabase.db", school_id_filter, e)
+
+            # Fallback: metabase.db SQL (当 Card 374 API 不可用时)
+            # 查询该校各学段教师数
+            xd_school_total = {}
+            xd_total_sql = """
+                SELECT
+                    COUNT(DISTINCT teacher_id) AS cnt_all,
+                    COUNT(DISTINCT CASE WHEN ',' || stage_names || ',' LIKE '%,高中部,%' THEN teacher_id END) AS cnt_gz,
+                    COUNT(DISTINCT CASE WHEN ',' || stage_names || ',' LIKE '%,初中部,%' THEN teacher_id END) AS cnt_cz,
+                    COUNT(DISTINCT CASE WHEN ',' || stage_names || ',' LIKE '%,小学部,%' THEN teacher_id END) AS cnt_xx
+                FROM teacher_base
+                WHERE state = 1 AND CAST(school_id AS TEXT) = ?
+            """
+            trow = conn.execute(xd_total_sql, [school_id_filter]).fetchone()
+            xd_school_total = {
+                "_all": max(trow["cnt_all"], 1),
+                "高中": max(trow["cnt_gz"], 1),
+                "初中": max(trow["cnt_cz"], 1),
+                "小学": max(trow["cnt_xx"], 1),
+            }
+
+            # 查询该校每日按学段分组的 UV
+            xd_uv_sql = f"""
+                SELECT {date_group} AS period,
+                       COUNT(DISTINCT d.tianli_user_id) AS uv_all,
+                       COUNT(DISTINCT CASE WHEN EXISTS (
+                           SELECT 1 FROM teacher_base t2
+                           WHERE t2.teacher_id = d.tianli_user_id
+                             AND CAST(t2.school_id AS TEXT) = CAST(d.tianli_school_id AS TEXT)
+                             AND t2.state = 1
+                             AND ',' || t2.stage_names || ',' LIKE '%,高中部,%'
+                       ) THEN d.tianli_user_id END) AS uv_gz,
+                       COUNT(DISTINCT CASE WHEN EXISTS (
+                           SELECT 1 FROM teacher_base t2
+                           WHERE t2.teacher_id = d.tianli_user_id
+                             AND CAST(t2.school_id AS TEXT) = CAST(d.tianli_school_id AS TEXT)
+                             AND t2.state = 1
+                             AND ',' || t2.stage_names || ',' LIKE '%,初中部,%'
+                       ) THEN d.tianli_user_id END) AS uv_cz,
+                       COUNT(DISTINCT CASE WHEN EXISTS (
+                           SELECT 1 FROM teacher_base t2
+                           WHERE t2.teacher_id = d.tianli_user_id
+                             AND CAST(t2.school_id AS TEXT) = CAST(d.tianli_school_id AS TEXT)
+                             AND t2.state = 1
+                             AND ',' || t2.stage_names || ',' LIKE '%,小学部,%'
+                       ) THEN d.tianli_user_id END) AS uv_xx
+                FROM dws_ingress_teacher_day d
+                WHERE d.host = 'research-api.qimingdaren.com'
+                  AND CAST(d.tianli_school_id AS TEXT) = ?
+                  AND d.tianli_user_id IS NOT NULL AND d.tianli_user_id <> '' AND d.tianli_user_id <> '-'
+                  AND substr(d.stat_date,1,10) >= ? AND substr(d.stat_date,1,10) <= ?
+                  AND d.tianli_user_id IN (
+                      SELECT t.teacher_id FROM teacher_base t
+                      WHERE CAST(t.school_id AS TEXT) = CAST(d.tianli_school_id AS TEXT)
+                        AND t.state = 1
+                  )
+                GROUP BY {date_group}
+                ORDER BY period
+            """
+            xd_uv_rows = conn.execute(xd_uv_sql, [school_id_filter, start_date, end_date]).fetchall()
+            xd_period = {r["period"]: r for r in xd_uv_rows}
+
+            # SLS fallback for missing dates
+            missing_xd = [l for l in all_labels if l not in xd_period]
+            if missing_xd:
+                sls_xd = _query_sls_trend_xueduan(start_date, end_date)
+                # Compute correction factors
+                xd_keys = ["uv_all", "uv_gz", "uv_cz", "uv_xx"]
+                corrections = {}
+                for xk in xd_keys:
+                    ratios = []
+                    for dt in xd_period:
+                        if dt in sls_xd and sls_xd[dt].get(xk, 0) > 0:
+                            mb_val = xd_period[dt][xk] if xk in xd_period[dt].keys() else 0
+                            if mb_val > 0:
+                                ratios.append(mb_val / sls_xd[dt][xk])
+                    corrections[xk] = sum(ratios) / len(ratios) if ratios else 1.0
+                for dt_str in missing_xd:
+                    if dt_str in sls_xd:
+                        corrected = {}
+                        for xk in xd_keys:
+                            corrected[xk] = round(sls_xd[dt_str].get(xk, 0) * corrections.get(xk, 1.0))
+                        xd_period[dt_str] = corrected
+
+            # 构建 4 个 dataset: 使用率 = metabase UV / 学段教师数
+            xd_map_single = [
+                ("平台总体使用率", "uv_all", xd_school_total["_all"], "rgb(173,232,130)", "rgba(173,232,130,0.08)"),
+                ("高中使用率", "uv_gz", xd_school_total["高中"], "rgb(99,102,241)", "rgba(99,102,241,0.08)"),
+                ("初中使用率", "uv_cz", xd_school_total["初中"], "rgb(251,191,36)", "rgba(251,191,36,0.08)"),
+                ("小学使用率", "uv_xx", xd_school_total["小学"], "rgb(168,85,247)", "rgba(168,85,247,0.08)"),
+            ]
+            xd_datasets_single = []
+            for label, uv_key, total, color, bg in xd_map_single:
+                data = []
+                for l in all_labels:
+                    if l in xd_period:
+                        try:
+                            uv_val = xd_period[l][uv_key]
+                        except (KeyError, IndexError):
+                            uv_val = 0
+                        rate = round(uv_val / total * 100, 2) if total > 0 else 0
+                    else:
+                        rate = 0
+                    data.append(rate)
+                xd_datasets_single.append({
+                    "label": label, "data": data,
+                    "borderColor": color, "backgroundColor": bg,
+                    "fill": False, "tension": 0.3, "borderWidth": 2,
+                    "pointRadius": 3, "pointHoverRadius": 6,
+                })
+
+            return jsonify({
+                "labels": all_labels,
+                "datasets": xd_datasets_single,
+                "chart_type": chart_type,
+                "granularity": granularity,
+            })
+
+        # ── 单校 + metric=daily_d21_uv: 单校每日D21 UV（与KPI卡片2一致） ──
+        metric = request.args.get("metric", "")
+        if metric == "daily_d21_uv" and school_id_filter and granularity == "day":
+            try:
+                from models.school import School as _S2
+                _all2 = _S2.get_all()
+                _school_obj = next((s for s in _all2 if s.metabase_school_id == school_id_filter), None)
+                if _school_obj:
+                    _sname = _school_obj.name or _school_obj.display_name
+                    _d21_daily = asyncio.run(_query_d21_daily_school(_sname, start_date, end_date))
+                    logger.info("[Trend] D21 daily UV for '%s': %s", _sname, {k: v for k, v in _d21_daily.items() if v > 0})
+                    _d21_data = [_d21_daily.get(l, 0) for l in all_labels]
+                    return jsonify({
+                        "labels": all_labels,
+                        "datasets": [{
+                            "label": "日活人数",
+                            "data": _d21_data,
+                            "borderColor": "rgb(99,102,241)",
+                            "backgroundColor": "rgba(99,102,241,0.1)",
+                            "fill": True, "tension": 0.3, "borderWidth": 2,
+                            "pointRadius": 3, "pointHoverRadius": 6,
+                        }],
+                        "chart_type": "line",
+                        "granularity": "day",
+                    })
+            except Exception as _e2:
+                logger.warning("[Trend] D21 daily UV failed for school %s: %s", school_id_filter, _e2)
+                # Fall through to default metabase.db path
+
+        # ── 默认模式：单校日活人数趋势 ──
         # 构建学校过滤
         school_sql = """
             SELECT DISTINCT CAST(school_id AS TEXT) AS sid
@@ -1290,13 +1988,13 @@ def trend_chart():
                 school_sql += f" AND CAST(school_id AS TEXT) IN ({placeholders})"
                 school_params.extend(allowed_sids)
             else:
-                return jsonify({"labels": [], "datasets": [], "chart_type": chart_type, "granularity": granularity})
+                return jsonify({"labels": all_labels, "datasets": [], "chart_type": chart_type, "granularity": granularity})
 
         school_rows = conn.execute(school_sql, school_params).fetchall()
         sids = [r["sid"] for r in school_rows]
 
         if not sids:
-            return jsonify({"labels": [], "datasets": [], "chart_type": chart_type, "granularity": granularity})
+            return jsonify({"labels": all_labels, "datasets": [], "chart_type": chart_type, "granularity": granularity})
 
         # 查询日活 UV — 总日活人数
         sid_placeholders = ",".join(["?"] * len(sids))
@@ -1327,6 +2025,65 @@ def trend_chart():
             labels.append(r["period"])
             uv_data.append(r["uv"])
 
+        # ── SLS fallback: fill missing dates from live SLS data ──
+        if granularity == "day":
+            label_set = set(labels)
+            missing_dates = [l for l in all_labels if l not in label_set]
+            if missing_dates:
+                sls_data = _query_sls_trend(start_date, end_date, sids)
+                # Compute correction factor from overlapping dates (metabase vs SLS)
+                mb_uv_map = dict(zip(labels, uv_data))
+                ratios = []
+                for dt in labels:
+                    if dt in sls_data and sls_data[dt] > 0 and dt in mb_uv_map:
+                        ratios.append(mb_uv_map[dt] / sls_data[dt])
+                correction = sum(ratios) / len(ratios) if ratios else 1.0
+                for dt_str in sorted(missing_dates):
+                    if dt_str in sls_data:
+                        labels.append(dt_str)
+                        uv_data.append(round(sls_data[dt_str] * correction))
+            # Sort labels and data by date order
+            if labels:
+                sorted_pairs = sorted(zip(labels, uv_data), key=lambda x: x[0])
+                labels = [p[0] for p in sorted_pairs]
+                uv_data = [p[1] for p in sorted_pairs]
+
+        # ── D21 scaling: 将 metabase.db 每日数据缩放到与 KPI 卡片2一致 ──
+        if granularity == "day" and uv_data:
+            try:
+                from models.school import School as _S
+                _all = _S.get_all()
+                _sid_to_name = {s.metabase_school_id: (s.name or s.display_name) for s in _all if s.metabase_school_id}
+
+                if school_id_filter:
+                    # 单校筛选：查询该校每天 D21 UV，直接替换
+                    _sobj = next((s for s in _all if s.metabase_school_id == school_id_filter), None)
+                    _sname = (_sobj.name or _sobj.display_name) if _sobj else ""
+                    if _sname:
+                        _d21_daily = asyncio.run(_query_d21_daily_school(_sname, start_date, end_date))
+                        if _d21_daily:
+                            new_uv = []
+                            for i, l in enumerate(labels):
+                                d21_val = _d21_daily.get(l, 0)
+                                if d21_val > 0:
+                                    new_uv.append(d21_val)
+                                else:
+                                    new_uv.append(uv_data[i])
+                            uv_data = [int(v) if isinstance(v, float) and v == int(v) else v for v in new_uv]
+                            logger.info("[Trend] D21 per-day scaling for '%s': %s", _sname, {k: v for k, v in _d21_daily.items() if v > 0})
+                else:
+                    # 全校：查询所有学校 D21 总 UV，全局缩放
+                    _names = [_sid_to_name[sid] for sid in sids if sid in _sid_to_name]
+                    if _names:
+                        _d21_total = asyncio.run(_query_d21_period_sum(_names, start_date, end_date))
+                        _mb_total = sum(uv_data)
+                        if _d21_total > 0 and _mb_total > 0:
+                            _factor = _d21_total / _mb_total
+                            uv_data = [round(v * _factor) for v in uv_data]
+                            logger.info("[Trend] D21 scaling: d21=%.0f mb=%d factor=%.3f", _d21_total, _mb_total, _factor)
+            except Exception as _e:
+                logger.warning("[Trend] D21 scaling failed: %s", _e)
+
         datasets = [{
             "label": "日活人数",
             "data": uv_data,
@@ -1339,6 +2096,9 @@ def trend_chart():
             "pointRadius": 3 if chart_type == "line" else 0,
             "pointHoverRadius": 6 if chart_type == "line" else 0,
         }]
+
+        # 补全缺失日期（SLS 未覆盖的日期补 0）
+        labels, datasets = _fill_missing_dates(labels, datasets)
 
         return jsonify({
             "labels": labels,
@@ -1385,14 +2145,18 @@ def module_usage():
         return jsonify({"error": "日期格式错误"}), 400
 
     # ── 尝试 Metabase API（首选数据源）──
-    try:
-        metabase_result = asyncio.run(_query_metabase_modules(
-            start_dt.date(), end_dt.date(), stage, school_id_set, types
-        ))
-        if metabase_result is not None and metabase_result.get("rows"):
-            return jsonify(metabase_result)
-    except Exception as e:
-        logger.warning("Metabase API 查询失败，回退到 SLS: %s", e)
+    # Metabase 模块卡片仅支持 stage 参数，grade/subject 无法传递，需走 SLS 回退
+    if not grade and not subject:
+        try:
+            metabase_result = asyncio.run(_query_metabase_modules(
+                start_dt.date(), end_dt.date(), stage, school_id_set, types
+            ))
+            if metabase_result is not None and metabase_result.get("rows"):
+                return jsonify(metabase_result)
+        except Exception as e:
+            logger.warning("Metabase API 查询失败，回退到 SLS: %s", e)
+    else:
+        logger.info("grade/subject 筛选激活，跳过 Metabase API，走 SLS 回退")
 
     # ── 回退到 SLS / metabase.db ──
     start_ms = int(start_dt.timestamp() * 1000)
@@ -1442,11 +2206,18 @@ def module_usage():
             conn.close()
 
     # 查询 SLS 获取每个模块的活跃教师数（批量查询）
+    # 当有 stage/grade/subject 筛选时，限定为匹配的学校 ID
+    filtered_sids = list(schools_info.keys()) if (stage or grade or subject) else None
     module_active = {}  # {module_key: {school_id: active_count}}
     can_query_sls = _get_grafana_auth() is not None
 
+    # grade/subject 筛选时 SLS 无法按教师属性过滤，改用 metabase.db 确保数据准确
+    if grade or subject:
+        can_query_sls = False
+        logger.info("grade/subject 筛选激活，跳过 SLS，使用 metabase.db 回退")
+
     if can_query_sls:
-        module_active = _query_sls_batch(start_ms, end_ms)
+        module_active = _query_sls_batch(start_ms, end_ms, school_ids=filtered_sids)
         if not module_active:
             logger.warning("SLS 批量查询返回空结果，回退到 metabase")
             can_query_sls = False
@@ -1463,14 +2234,14 @@ def module_usage():
     # 获取 school_id → (display_name, type, priority, owner_id) 映射
     from models.school import School
     all_local = School.get_all()
-    # 构建 owner_id → 手机号 映射（仅直营校有负责人）
+    # 构建 owner_id → 姓名 映射（仅直营校有负责人）
     owner_map = {}
     for s in all_local:
         if s.owner_id:
             from models.user import User
             u = User.get_by_id(s.owner_id)
             if u:
-                owner_map[s.id] = u.username
+                owner_map[s.owner_id] = u.display_name or u.username
     school_meta = {
         s.metabase_school_id: (s.display_name or s.name, s.type or "", s.priority or "中", s.owner_id or 0)
         for s in all_local if s.metabase_school_id
@@ -1490,17 +2261,33 @@ def module_usage():
                 rate_values.append(rate)
         else:
             # 回退模式：只用 metabase 计算整体活跃，其他模块显示 "-"
+            # 当有 stage/grade/subject 筛选时，JOIN teacher_base 确保活跃人数也按筛选条件过滤
             conn2 = _get_mb_conn()
             try:
-                overall_sql = """
-                    SELECT COUNT(DISTINCT tianli_user_id) AS cnt
-                    FROM dws_ingress_teacher_day
-                    WHERE CAST(tianli_school_id AS TEXT) = ?
-                      AND host = 'research-api.qimingdaren.com'
-                      AND tianli_user_id IS NOT NULL AND tianli_user_id <> '' AND tianli_user_id <> '-'
-                      AND substr(stat_date,1,10) >= ? AND substr(stat_date,1,10) <= ?
-                """
-                overall_active = conn2.execute(overall_sql, [sid, start_date, end_date]).fetchone()["cnt"]
+                if extra_filter:
+                    overall_sql = f"""
+                        SELECT COUNT(DISTINCT d.tianli_user_id) AS cnt
+                        FROM dws_ingress_teacher_day d
+                        INNER JOIN teacher_base tb
+                            ON CAST(d.tianli_school_id AS TEXT) = CAST(tb.school_id AS TEXT)
+                           AND d.tianli_user_id = CAST(tb.teacher_id AS TEXT)
+                           AND tb.state = 1
+                        WHERE CAST(d.tianli_school_id AS TEXT) = ?
+                          AND d.host = 'research-api.qimingdaren.com'
+                          AND d.tianli_user_id IS NOT NULL AND d.tianli_user_id <> '' AND d.tianli_user_id <> '-'
+                          AND substr(d.stat_date,1,10) >= ? AND substr(d.stat_date,1,10) <= ?
+                          {extra_filter.replace('stage_names', 'tb.stage_names').replace('grade_names', 'tb.grade_names').replace('subject_names', 'tb.subject_names')}
+                    """
+                else:
+                    overall_sql = """
+                        SELECT COUNT(DISTINCT tianli_user_id) AS cnt
+                        FROM dws_ingress_teacher_day
+                        WHERE CAST(tianli_school_id AS TEXT) = ?
+                          AND host = 'research-api.qimingdaren.com'
+                          AND tianli_user_id IS NOT NULL AND tianli_user_id <> '' AND tianli_user_id <> '-'
+                          AND substr(stat_date,1,10) >= ? AND substr(stat_date,1,10) <= ?
+                    """
+                overall_active = conn2.execute(overall_sql, [sid, start_date, end_date] + extra_params).fetchone()["cnt"]
             finally:
                 conn2.close()
             overall_rate = round(overall_active / total * 100, 1) if total > 0 else 0

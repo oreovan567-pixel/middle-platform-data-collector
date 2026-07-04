@@ -38,6 +38,7 @@ CARD_D21_UV = 370              # UV（去重访问人数）
 CARD_D21_WEEKLY_ACTIVE = 368   # 周活教师（>=3天去重）
 CARD_D21_MONTHLY_ACTIVE = 369  # 月活（>=4天去重）
 CARD_D21_TOTAL_TEACHERS = 372  # 总教师人数
+CARD_D21_USAGE_RATE = 374      # 平台使用率（支持学段筛选）
 
 # Dashboard 21 活跃指标卡片列表（与 Dashboard 6 模块卡片一起并发查询）
 D21_ACTIVE_CARDS = [
@@ -60,6 +61,7 @@ D21_DASHCARDS = {
     CARD_D21_WEEKLY_ACTIVE: 473,
     CARD_D21_MONTHLY_ACTIVE: 474,
     CARD_D21_TOTAL_TEACHERS: 477,
+    CARD_D21_USAGE_RATE: 480,
 }
 
 # text widget 卡片（不可查询，Dashboard 6 中仅作静态展示）
@@ -230,6 +232,49 @@ class ApiLidaScraper:
             logger.warning("[Metabase] D21 dashcard %d 查询失败: %s", card_id, e)
         return ""
 
+    async def _query_d21_usage_rate(self, school_name: str, start_date: str,
+                                     end_date: str, stage: str = "") -> float:
+        """通过 Card 374 (dashcard 480) 查询平台使用率（支持学段筛选）
+
+        返回使用率百分比，如 13.85 表示 13.85%。
+        stage 可选: "高中部" / "初中部" / "小学部"，为空时返回总体使用率。
+        """
+        dashcard_id = D21_DASHCARDS.get(CARD_D21_USAGE_RATE)
+        if not dashcard_id:
+            return 0.0
+
+        session = await self._get_session()
+        headers = {"X-Metabase-Session": self._session_id, "Content-Type": "application/json"}
+        url = f"{self._metabase_base}/api/dashboard/21/dashcard/{dashcard_id}/card/{CARD_D21_USAGE_RATE}/query"
+
+        params = [
+            {"id": D21_PARAM_IDS["学校"], "type": "string/=",
+             "target": ["variable", ["template-tag", "school_name"]],
+             "value": school_name},
+            {"id": D21_PARAM_IDS["开始时间"], "type": "date/single",
+             "target": ["variable", ["template-tag", "start_date"]],
+             "value": str(start_date)},
+            {"id": D21_PARAM_IDS["结束时间"], "type": "date/single",
+             "target": ["variable", ["template-tag", "end_date"]],
+             "value": str(end_date)},
+        ]
+        if stage:
+            params.append({
+                "id": D21_PARAM_IDS["学段"], "type": "string/=",
+                "target": ["variable", ["template-tag", "stage"]],
+                "value": stage,
+            })
+
+        try:
+            async with session.post(url, json={"parameters": params}, headers=headers) as resp:
+                result = await resp.json()
+            rows = result.get("data", {}).get("rows", [])
+            if rows and len(rows[0]) >= 2:
+                return float(rows[0][1])
+        except Exception as e:
+            logger.warning("[Metabase] D21 usage rate query failed: %s", e)
+        return 0.0
+
     # ── 学校列表 ──
 
     async def _fetch_school_list(self) -> dict[str, str]:
@@ -360,20 +405,16 @@ class ApiLidaScraper:
                 result[str(cid)] = ""
 
         # 查询 Dashboard 21 活跃指标（通过 dashcard 端点）
-        # 注意：D21 卡片不支持 stage 筛选，有学段过滤时跳过，确保数据一致性
-        if not stage:
-            try:
-                start_str = str(date_range[0])
-                end_str = str(date_range[1])
-                for cid in D21_ACTIVE_CARDS:
-                    val = await self._query_d21_dashcard(cid, school_name, start_str, end_str)
-                    result[str(cid)] = val
-                    logger.info("[Metabase] %s D21-%s: %s", school_name, cid, val or "(empty)")
-            except Exception as e:
-                logger.warning("[Metabase] %s D21 dashcard 查询异常: %s", school_name, e)
-                for cid in D21_ACTIVE_CARDS:
-                    result[str(cid)] = ""
-        else:
+        # 注意：D21 卡片本身不支持 stage 参数，无论是否有学段筛选都查询（不传 stage）
+        try:
+            start_str = str(date_range[0])
+            end_str = str(date_range[1])
+            for cid in D21_ACTIVE_CARDS:
+                val = await self._query_d21_dashcard(cid, school_name, start_str, end_str)
+                result[str(cid)] = val
+                logger.info("[Metabase] %s D21-%s: %s", school_name, cid, val or "(empty)")
+        except Exception as e:
+            logger.warning("[Metabase] %s D21 dashcard 查询异常: %s", school_name, e)
             for cid in D21_ACTIVE_CARDS:
                 result[str(cid)] = ""
 

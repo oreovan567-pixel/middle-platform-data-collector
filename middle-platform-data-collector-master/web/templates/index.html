@@ -807,7 +807,15 @@ function initSS(id, data) {
     _ss[id] = {inp:inp,dd:dd,sel:sel,data:data||[],open:false,hi:-1};
     inp.addEventListener('focus', function(){openSS(id);});
     inp.addEventListener('click', function(){openSS(id);});
-    inp.addEventListener('input', function(){openSS(id);});
+    inp.addEventListener('input', function(){
+        openSS(id);
+        // 输入框清空时，同步清空隐藏 select 值
+        if (!inp.value.trim()) { sel.value = ''; }
+    });
+    // 失焦时同步：输入框为空→清空select
+    inp.addEventListener('blur', function() {
+        if (!inp.value.trim()) { sel.value = ''; }
+    });
     inp.addEventListener('keydown', function(e){
         var s=_ss[id]; if(!s||!s.open) return;
         var opts=s.dd.querySelectorAll('.ss-option'), cnt=opts.length;
@@ -865,9 +873,18 @@ function restorePreferences() {
         var inp = document.querySelector('#ss_school .ss-input');
         if (inp && p.school_name) inp.value = p.school_name;
     }
-    if (p.stage) document.getElementById('f_stage').value = p.stage;
-    if (p.grade) document.getElementById('f_grade').value = p.grade;
-    if (p.subject) document.getElementById('f_subject').value = p.subject;
+    if (p.stage) {
+        document.getElementById('f_stage').value = p.stage;
+        var ssStg = _ss['ss_stage']; if (ssStg) ssStg.inp.value = p.stage;
+    }
+    if (p.grade) {
+        document.getElementById('f_grade').value = p.grade;
+        var ssGrd = _ss['ss_grade']; if (ssGrd) ssGrd.inp.value = p.grade;
+    }
+    if (p.subject) {
+        document.getElementById('f_subject').value = p.subject;
+        var ssSub = _ss['ss_subject']; if (ssSub) ssSub.inp.value = p.subject;
+    }
 }
 
 /* ── 初始化 ── */
