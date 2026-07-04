@@ -439,43 +439,34 @@ async function updateDashboard() {
     var data;
     try { data = await fetchModuleUsage(params); } catch(e) { console.error(e); return; }
 
-    // 同比: 往前推相同天数
-    var sD = parseDate(startDate), eD = parseDate(endDate);
-    var days = daysBetween(sD, eD);
-    var tEnd = new Date(sD.getTime() - 864e5);
-    var tStart = new Date(tEnd.getTime() - (days-1)*864e5);
-    // 环比: 上月相同日期范围
-    var mStart = new Date(sD.getFullYear(), sD.getMonth()-1, sD.getDate());
-    var mEnd = new Date(eD.getFullYear(), eD.getMonth()-1, eD.getDate());
+    var cur = extractKPIs(data);
+    var tb = null, hb = null;
 
-    var tongbi=null, huanbi=null;
-    // 优先尝试合并 KPI API（Vercel 上更快）
+    // 尝试合并 KPI API（只返回同比/环比的 overall 日活，很快）
     try {
         var kpiParams = new URLSearchParams();
         kpiParams.set('start_date', startDate);
         kpiParams.set('end_date', endDate);
-        var stage = document.getElementById('f_stage') ? document.getElementById('f_stage').value : '';
-        if (stage) kpiParams.set('stage', stage);
         var kpiResp = await fetch('/api/charts/kpi-summary?' + kpiParams.toString());
         var kpiData = await kpiResp.json();
-        if (kpiData.current && kpiData.current.dailyUV > 0) {
-            // 使用合并 API 的结果
-            var cur = kpiData.current;
-            var tb = kpiData.tongbi;
-            var hb = kpiData.huanbi;
-            updateKPIs(cur, tb, hb);
-            renderCharts(data);
-            return;
-        }
-    } catch(e) { console.log('kpi-summary failed, fallback to 3 calls:', e); }
+        if (kpiData.tongbi) tb = kpiData.tongbi;
+        if (kpiData.huanbi) hb = kpiData.huanbi;
+    } catch(e) {
+        console.log('kpi-summary failed:', e);
+        // 回退：3 次单独调用
+        var sD = parseDate(startDate), eD = parseDate(endDate);
+        var days = daysBetween(sD, eD);
+        var tEnd = new Date(sD.getTime() - 864e5);
+        var tStart = new Date(tEnd.getTime() - (days-1)*864e5);
+        var mStart = new Date(sD.getFullYear(), sD.getMonth()-1, sD.getDate());
+        var mEnd = new Date(eD.getFullYear(), eD.getMonth()-1, eD.getDate());
+        var tongbi=null, huanbi=null;
+        try { tongbi = await fetchModuleUsage(buildParams(fmtDate(tStart), fmtDate(tEnd))); } catch(e2){}
+        try { huanbi = await fetchModuleUsage(buildParams(fmtDate(mStart), fmtDate(mEnd))); } catch(e2){}
+        tb = tongbi ? extractKPIs(tongbi) : null;
+        hb = huanbi ? extractKPIs(huanbi) : null;
+    }
 
-    // 回退：3 次单独调用
-    try { tongbi = await fetchModuleUsage(buildParams(fmtDate(tStart), fmtDate(tEnd))); } catch(e){}
-    try { huanbi = await fetchModuleUsage(buildParams(fmtDate(mStart), fmtDate(mEnd))); } catch(e){}
-
-    var cur = extractKPIs(data);
-    var tb = tongbi ? extractKPIs(tongbi) : null;
-    var hb = huanbi ? extractKPIs(huanbi) : null;
     updateKPIs(cur, tb, hb);
     renderCharts(data);
 }
