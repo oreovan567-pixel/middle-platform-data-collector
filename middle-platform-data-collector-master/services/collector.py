@@ -20,9 +20,14 @@ from config.config_loader import get_schools, get_school, load_config
 from models.database import get_connection
 from models.weekly_record import WeeklyRecord
 from models.monthly_record import MonthlyRecord
-from scrapers.browser_manager import BrowserManager
-from scrapers.grafana_scraper import GrafanaScraper
-from scrapers.main_site_scraper import MainSiteScraper
+# 浏览器采集器（可选依赖，Vercel 等 serverless 环境无 playwright）
+try:
+    from scrapers.browser_manager import BrowserManager
+    from scrapers.grafana_scraper import GrafanaScraper
+    from scrapers.main_site_scraper import MainSiteScraper
+    BROWSER_SCRAPERS_AVAILABLE = True
+except ImportError:
+    BROWSER_SCRAPERS_AVAILABLE = False
 
 # API 直连采集器（可选依赖）
 try:
