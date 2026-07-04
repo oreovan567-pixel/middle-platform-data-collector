@@ -143,4 +143,7 @@ def get_metabase_db_path() -> Path:
         pass
 
     # 默认：项目 data 目录下
+    data_dir = os.environ.get("DATA_DIR")
+    if data_dir:
+        return Path(data_dir) / "metabase.db"
     return Path(__file__).parent.parent / "data" / "metabase.db"

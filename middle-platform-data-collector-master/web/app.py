@@ -12,15 +12,16 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 
 def _setup_logging():
-    log_dir = _PROJECT_ROOT / "logs"
-    log_dir.mkdir(exist_ok=True)
+    handlers = [logging.StreamHandler()]
+    # Vercel serverless 环境无文件写入权限，只用 stdout 日志
+    if not os.environ.get("VERCEL"):
+        log_dir = _PROJECT_ROOT / "logs"
+        log_dir.mkdir(exist_ok=True)
+        handlers.append(logging.FileHandler(log_dir / "app.log", encoding="utf-8"))
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        handlers=[
-            logging.FileHandler(log_dir / "app.log", encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
+        handlers=handlers,
     )
 
 

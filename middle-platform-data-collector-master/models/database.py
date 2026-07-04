@@ -9,7 +9,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-_DATA_DIR = Path(__file__).parent.parent / "data"
+_DATA_DIR = Path(os.environ.get("DATA_DIR", str(Path(__file__).parent.parent / "data")))
 _DB_PATH = _DATA_DIR / "app.db"
 
 
