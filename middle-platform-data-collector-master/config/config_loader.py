@@ -18,13 +18,68 @@ def _load_yaml(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _default_config_from_env() -> dict:
+    """无 config.yaml 时从环境变量构建配置（Vercel 等 serverless 环境）"""
+    creds = {}
+
+    # lida
+    if os.environ.get("LIDA_URL"):
+        creds["lida"] = {
+            "url": os.environ["LIDA_URL"],
+            "username": os.environ.get("LIDA_USERNAME", ""),
+            "password": os.environ.get("LIDA_PASSWORD", ""),
+        }
+    else:
+        creds["lida"] = {"url": "https://lida.qimingdaren.com/#/workbench", "username": "", "password": ""}
+
+    # grafana
+    if os.environ.get("GRAFANA_URL"):
+        creds["grafana"] = {
+            "url": os.environ["GRAFANA_URL"],
+            "username": os.environ.get("GRAFANA_USERNAME", ""),
+            "password": os.environ.get("GRAFANA_PASSWORD", ""),
+            "api_token": os.environ.get("GRAFANA_API_TOKEN", ""),
+        }
+    else:
+        creds["grafana"] = {"url": "https://grafana.qimingdaren.com/dashboards", "username": "", "password": "", "api_token": ""}
+
+    # main_site
+    if os.environ.get("MAIN_SITE_URL"):
+        creds["main_site"] = {
+            "url": os.environ["MAIN_SITE_URL"],
+            "username": os.environ.get("MAIN_SITE_USERNAME", ""),
+            "password": os.environ.get("MAIN_SITE_PASSWORD", ""),
+        }
+    else:
+        creds["main_site"] = {"url": "https://www.qimingdaren.com/#/platform/login", "username": "", "password": ""}
+
+    # metabase
+    creds["metabase"] = {
+        "url": os.environ.get("METABASE_URL", "https://metabase.qimingdaren.com"),
+        "username": os.environ.get("METABASE_USERNAME", ""),
+        "password": os.environ.get("METABASE_PASSWORD", ""),
+        "dashboard_id": int(os.environ.get("METABASE_DASHBOARD_ID", "6")),
+    }
+
+    return {
+        "browser": {"headless": True, "slow_mo": 0, "default_timeout": 30000},
+        "schools": [],
+        "database": {},
+        "credentials": creds,
+    }
+
+
 def load_config(force_reload: bool = False) -> dict:
-    """加载配置文件，优先使用缓存"""
+    """加载配置文件，优先使用缓存。无 config.yaml 时从环境变量加载"""
     global _config_cache
     if _config_cache is not None and not force_reload:
         return _config_cache
 
     if not _CONFIG_PATH.exists():
+        # Serverless 环境（如 Vercel）：从环境变量构建配置
+        if os.environ.get("VERCEL") or os.environ.get("METABASE_USERNAME"):
+            _config_cache = _default_config_from_env()
+            return _config_cache
         raise FileNotFoundError(
             f"配置文件不存在: {_CONFIG_PATH}\n"
             f"请复制 {_EXAMPLE_PATH} 为 {_CONFIG_PATH} 并填入真实信息"
