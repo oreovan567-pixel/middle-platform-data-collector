@@ -442,29 +442,48 @@ async function updateDashboard() {
     var cur = extractKPIs(data);
     var tb = null, hb = null;
 
-    // 尝试合并 KPI API（只返回同比/环比的 overall 日活，很快）
-    try {
-        var kpiParams = new URLSearchParams();
-        kpiParams.set('start_date', startDate);
-        kpiParams.set('end_date', endDate);
-        var kpiResp = await fetch('/api/charts/kpi-summary?' + kpiParams.toString());
-        var kpiData = await kpiResp.json();
-        if (kpiData.tongbi) tb = kpiData.tongbi;
-        if (kpiData.huanbi) hb = kpiData.huanbi;
-    } catch(e) {
-        console.log('kpi-summary failed:', e);
-        // 回退：3 次单独调用
+    // fallback：查询同比/环比时段的 module-usage，走相同的筛选逻辑
+    var _doFallback = async function() {
         var sD = parseDate(startDate), eD = parseDate(endDate);
         var days = daysBetween(sD, eD);
         var tEnd = new Date(sD.getTime() - 864e5);
         var tStart = new Date(tEnd.getTime() - (days-1)*864e5);
         var mStart = new Date(sD.getFullYear(), sD.getMonth()-1, sD.getDate());
         var mEnd = new Date(eD.getFullYear(), eD.getMonth()-1, eD.getDate());
-        var tongbi=null, huanbi=null;
-        try { tongbi = await fetchModuleUsage(buildParams(fmtDate(tStart), fmtDate(tEnd))); } catch(e2){}
-        try { huanbi = await fetchModuleUsage(buildParams(fmtDate(mStart), fmtDate(mEnd))); } catch(e2){}
-        tb = tongbi ? extractKPIs(tongbi) : null;
-        hb = huanbi ? extractKPIs(huanbi) : null;
+        var _tb = null, _hb = null;
+        try { _tb = await fetchModuleUsage(buildParams(fmtDate(tStart), fmtDate(tEnd))); } catch(e2){}
+        try { _hb = await fetchModuleUsage(buildParams(fmtDate(mStart), fmtDate(mEnd))); } catch(e2){}
+        return { tb: _tb ? extractKPIs(_tb) : null, hb: _hb ? extractKPIs(_hb) : null };
+    };
+
+    var isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (isLocal) {
+        // 本地服务器：直接走 fallback，数据与 module-usage 同源一致
+        var fb = await _doFallback();
+        tb = fb.tb;
+        hb = fb.hb;
+    } else {
+        // Vercel：先试 kpi-summary（避免超时），失败/数据不足再 fallback
+        var useFallback = true;
+        try {
+            var kpiParams = new URLSearchParams();
+            kpiParams.set('start_date', startDate);
+            kpiParams.set('end_date', endDate);
+            var kpiResp = await fetch('/api/charts/kpi-summary?' + kpiParams.toString());
+            var kpiData = await kpiResp.json();
+            if (kpiData.tongbi && kpiData.tongbi.dailyUV !== undefined) {
+                tb = kpiData.tongbi;  // 只含 dailyUV
+                hb = kpiData.huanbi;
+                useFallback = false;
+            }
+        } catch(e) {
+            console.log('kpi-summary failed:', e);
+        }
+        if (useFallback) {
+            var fb2 = await _doFallback();
+            tb = fb2.tb;
+            hb = fb2.hb;
+        }
     }
 
     updateKPIs(cur, tb, hb);

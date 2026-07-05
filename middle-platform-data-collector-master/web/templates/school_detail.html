@@ -188,10 +188,16 @@
     </div>
     <div class="fg" style="min-width:0">
         <label>&nbsp;</label>
+        <div style="display:flex;gap:6px;">
         <button class="btn-primary btn-sm" onclick="doQuerySD()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
             查询
         </button>
+        <button class="btn-export btn-sm" onclick="doExportPPT()" id="btnExportPPT">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+            导出PPT
+        </button>
+        </div>
     </div>
 </div>
 
@@ -924,6 +930,188 @@ function renderModuleChart(data) {
             }
         }
     });
+}
+
+// ── 一键导出 PPT（两步：预览 → 确认下载）──
+var _pptSessionId = null;
+
+async function doExportPPT() {
+    var btn = document.getElementById('btnExportPPT');
+    btn.disabled = true;
+    btn.textContent = '截屏中...';
+
+    try {
+        var startDate = document.getElementById('f_start').value;
+        var endDate = document.getElementById('f_end').value;
+        var schoolId = _schoolId || document.getElementById('f_school').value;
+        if (!schoolId) { alert('请先选择学校'); resetBtn(); return; }
+
+        var resp = await fetch('/api/export/ppt-screenshots', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                start_date: startDate,
+                end_date: endDate,
+                school_id: schoolId
+            })
+        });
+        if (!resp.ok) {
+            var err = await resp.json().catch(function(){ return {}; });
+            throw new Error(err.error || '截屏失败');
+        }
+
+        var data = await resp.json();
+        _pptSessionId = data.session_id;
+        showPreviewModal(data);
+    } catch(e) {
+        alert('PPT 导出失败: ' + e.message);
+        resetBtn();
+    }
+}
+
+function resetBtn() {
+    var btn = document.getElementById('btnExportPPT');
+    btn.disabled = false;
+    btn.textContent = '导出PPT';
+}
+
+function showPreviewModal(data) {
+    // 移除旧弹窗
+    var old = document.getElementById('pptPreviewOverlay');
+    if (old) old.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = 'pptPreviewOverlay';
+    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.onclick = function(e) { if (e.target === overlay) closePreview(); };
+
+    var modal = document.createElement('div');
+    modal.style.cssText = 'background:#fff;border-radius:12px;width:90%;max-width:1000px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);';
+
+    // 头部
+    var header = document.createElement('div');
+    header.style.cssText = 'padding:16px 24px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;';
+    header.innerHTML = '<h3 style="margin:0;font-size:18px;color:#1a73e8;">PPT 预览</h3>' +
+        '<span style="font-size:13px;color:#6b7280;">' + data.school_name + ' | ' + data.start_date + ' ~ ' + data.end_date + '</span>';
+    modal.appendChild(header);
+
+    // 主体
+    var body = document.createElement('div');
+    body.style.cssText = 'display:flex;flex:1;overflow:hidden;';
+
+    // 左侧缩略图列表
+    var sidebar = document.createElement('div');
+    sidebar.style.cssText = 'width:260px;min-width:260px;overflow-y:auto;padding:12px;border-right:1px solid #e5e7eb;background:#f9fafb;';
+    var currentSlideIdx = 0;
+
+    // 右侧大图预览区
+    var mainArea = document.createElement('div');
+    mainArea.style.cssText = 'flex:1;display:flex;align-items:center;justify-content:center;padding:20px;background:#f3f4f6;overflow:auto;';
+    var bigImg = document.createElement('img');
+    bigImg.style.cssText = 'max-width:100%;max-height:100%;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);display:none;';
+    mainArea.appendChild(bigImg);
+
+    function selectSlide(idx) {
+        currentSlideIdx = idx;
+        var items = sidebar.querySelectorAll('.ppt-thumb');
+        items.forEach(function(el, i) {
+            el.style.borderColor = i === idx ? '#1a73e8' : 'transparent';
+            el.style.background = i === idx ? '#e8f0fe' : '#fff';
+        });
+        var slide = data.slides[idx];
+        if (slide && slide.preview) {
+            bigImg.src = 'data:image/png;base64,' + slide.preview;
+            bigImg.style.display = 'block';
+        } else if (slide && slide.isCover) {
+            bigImg.style.display = 'none';
+            mainArea.innerHTML = '<div style="text-align:center;color:#1a73e8;"><div style="font-size:48px;font-weight:bold;margin-bottom:12px;">TIANLI</div><div style="font-size:18px;">天立国际 · 数据看板</div><div style="font-size:13px;color:#6b7280;margin-top:8px;">' + data.start_date + ' ~ ' + data.end_date + '</div></div>';
+        }
+    }
+
+    data.slides.forEach(function(slide, idx) {
+        var item = document.createElement('div');
+        item.className = 'ppt-thumb';
+        item.style.cssText = 'padding:10px;margin-bottom:8px;border-radius:8px;cursor:pointer;border:2px solid transparent;background:#fff;transition:all 0.15s;';
+        item.onclick = function() { selectSlide(idx); };
+
+        var label = document.createElement('div');
+        label.style.cssText = 'font-size:11px;color:#6b7280;margin-bottom:4px;';
+        label.textContent = '第' + (idx + 1) + '页';
+        item.appendChild(label);
+
+        var title = document.createElement('div');
+        title.style.cssText = 'font-size:13px;font-weight:500;color:#111827;';
+        title.textContent = slide.title;
+        item.appendChild(title);
+
+        sidebar.appendChild(item);
+    });
+
+    body.appendChild(sidebar);
+    body.appendChild(mainArea);
+    modal.appendChild(body);
+
+    // 底部按钮
+    var footer = document.createElement('div');
+    footer.style.cssText = 'padding:14px 24px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:12px;';
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '取消';
+    cancelBtn.style.cssText = 'padding:8px 24px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;font-size:14px;';
+    cancelBtn.onclick = closePreview;
+
+    var confirmBtn = document.createElement('button');
+    confirmBtn.textContent = '确认下载';
+    confirmBtn.style.cssText = 'padding:8px 24px;border:none;border-radius:6px;background:#1a73e8;color:#fff;cursor:pointer;font-size:14px;font-weight:500;';
+    confirmBtn.onclick = doDownloadPPT;
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(confirmBtn);
+    modal.appendChild(footer);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    // 默认选中第一页有预览的
+    var firstWithPreview = data.slides.findIndex(function(s) { return s.preview; });
+    selectSlide(firstWithPreview >= 0 ? firstWithPreview : 0);
+
+    resetBtn();
+}
+
+function closePreview() {
+    _pptSessionId = null;
+    var overlay = document.getElementById('pptPreviewOverlay');
+    if (overlay) overlay.remove();
+}
+
+async function doDownloadPPT() {
+    if (!_pptSessionId) { alert('会话已过期，请重新截屏'); return; }
+
+    var confirmBtn = document.querySelector('#pptPreviewOverlay button:last-child');
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = '生成中...';
+
+    try {
+        var resp = await fetch('/api/export/ppt-download/' + _pptSessionId);
+        if (!resp.ok) {
+            var err = await resp.json().catch(function(){ return {}; });
+            throw new Error(err.error || '下载失败');
+        }
+        var blob = await resp.blob();
+        var url = window.URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = '数据看板.pptx';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        closePreview();
+    } catch(e) {
+        alert('下载失败: ' + e.message);
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = '确认下载';
+    }
 }
 
 initSD();

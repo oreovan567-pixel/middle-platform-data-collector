@@ -536,6 +536,30 @@ select.filter-input {
     border-color: var(--border-hover);
 }
 
+.btn-export {
+    padding: 8px 16px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    margin-left: 8px;
+    transition: background 0.2s;
+}
+.btn-export:hover {
+    background: #1557b0;
+}
+.btn-export:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 .btn-ghost {
     padding: 8px 12px;
     background: transparent;
