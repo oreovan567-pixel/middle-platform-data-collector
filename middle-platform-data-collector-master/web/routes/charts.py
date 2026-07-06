@@ -323,6 +323,14 @@ def _query_usage(conn, x_axis, start_date, end_date, school_id, db_stage, grade,
 
 @charts_bp.route("/api/charts/platform-usage")
 def platform_usage():
+    """平台使用率 API — 优先使用 Metabase API 实时数据
+
+    X 轴逻辑：
+    - 无学校 → 按学校展示（school）
+    - 有学校无学段 → 按学段展示（stage）
+    - 有学段无年级 → 按年级展示（grade）
+    - 有年级 → 按学科展示（subject）
+    """
     start_date = request.args.get("start_date", "")
     end_date = request.args.get("end_date", "")
     school_id = request.args.get("school_id", "")
@@ -333,14 +341,67 @@ def platform_usage():
     if not start_date or not end_date:
         return jsonify({"error": "时间范围为必填项"}), 400
 
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "日期格式错误"}), 400
+
     db_stage = _db_stage(stage) if stage else ""
     x_axis = _determine_x_axis(school_id, stage, grade, subject)
 
+    # ── 优先使用 Metabase API ──
+    try:
+        if x_axis == "school":
+            # 全部学校：从 Metabase API 获取每校平台使用率
+            metabase_result = asyncio.run(_query_metabase_modules(
+                start_dt, end_dt, stage="", school_id_filter=None, types=""
+            ))
+            if metabase_result and metabase_result.get("rows"):
+                rows = metabase_result["rows"]
+                data = []
+                for r in rows:
+                    rate = r["rate_values"][0] if r.get("rate_values") else 0
+                    total = int(r.get("d21_total_teachers", 0) or 0)
+                    active = int(r.get("d21_uv", 0) or 0)
+                    data.append({
+                        "label": r.get("display_name") or r.get("school"),
+                        "numerator": active,
+                        "denominator": total,
+                        "rate": rate,
+                    })
+                return jsonify({"x_axis": x_axis, "data": data, "source": "metabase-api"})
+
+        elif x_axis == "stage" and school_id:
+            # 单校按学段拆分：逐学段查询 Metabase API
+            data = []
+            for stage_label in _STANDARD_STAGES:
+                metabase_result = asyncio.run(_query_metabase_modules(
+                    start_dt, end_dt, stage=stage_label, school_id_filter={school_id}, types=""
+                ))
+                if metabase_result and metabase_result.get("rows"):
+                    r = metabase_result["rows"][0]
+                    rate = r["rate_values"][0] if r.get("rate_values") else 0
+                    total = int(r.get("d21_total_teachers", 0) or 0)
+                    active = int(r.get("d21_uv", 0) or 0)
+                    data.append({
+                        "label": stage_label,
+                        "numerator": active,
+                        "denominator": total,
+                        "rate": rate,
+                    })
+                else:
+                    data.append({"label": stage_label, "numerator": 0, "denominator": 0, "rate": 0})
+            return jsonify({"x_axis": x_axis, "data": data, "source": "metabase-api"})
+    except Exception as e:
+        logger.warning("Metabase API 使用率查询失败，回退到本地数据库: %s", e)
+
+    # ── 回退到本地数据库（grade / subject 等 Metabase 不支持的维度）──
     conn = None
     try:
         conn = _get_mb_conn()
         data = _query_usage(conn, x_axis, start_date, end_date, school_id, db_stage, grade, subject)
-        return jsonify({"x_axis": x_axis, "data": data})
+        return jsonify({"x_axis": x_axis, "data": data, "source": "metabase"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
@@ -1730,6 +1791,7 @@ def trend_chart():
                 "datasets": datasets,
                 "chart_type": chart_type,
                 "granularity": granularity,
+                "source": "metabase-sls",
             })
 
         # ── 单校 + xueduan 模式：通过 Card 374 API 查询学段使用率趋势 ──
@@ -1811,6 +1873,7 @@ def trend_chart():
                         "datasets": xd_datasets_single,
                         "chart_type": chart_type,
                         "granularity": granularity,
+                        "source": "metabase-api",
                     })
                 except Exception as e:
                     logger.warning("[Trend-xueduan] Card 374 API failed for %s: %s, falling back to metabase.db", school_id_filter, e)
@@ -1930,6 +1993,7 @@ def trend_chart():
                 "datasets": xd_datasets_single,
                 "chart_type": chart_type,
                 "granularity": granularity,
+                "source": "metabase-sls",
             })
 
         # ── 单校 + metric=daily_d21_uv: 单校每日D21 UV（与KPI卡片2一致） ──
@@ -1956,6 +2020,7 @@ def trend_chart():
                         }],
                         "chart_type": "line",
                         "granularity": "day",
+                        "source": "metabase-api",
                     })
             except Exception as _e2:
                 logger.warning("[Trend] D21 daily UV failed for school %s: %s", school_id_filter, _e2)
@@ -2106,6 +2171,7 @@ def trend_chart():
             "datasets": datasets,
             "chart_type": chart_type,
             "granularity": granularity,
+            "source": "metabase-sls-d21",
         })
 
     except Exception as e:

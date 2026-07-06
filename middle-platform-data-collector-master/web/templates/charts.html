@@ -91,7 +91,7 @@
 <div class="charts-container">
     <div class="page-header">
         <h1>图表分析</h1>
-        <div class="subtitle">基于数据库的多维度使用率可视化分析</div>
+        <div class="subtitle">基于 Metabase API 实时数据的多维度使用率分析</div>
     </div>
 
     <div class="chart-panel">
@@ -142,6 +142,7 @@
             </div>
             <div class="chart-empty" id="chart_empty">暂无数据</div>
             <div class="chart-summary" id="chart_summary"></div>
+            <div class="data-source-footer" id="dataSourceFooter" style="text-align:center; padding:10px 0 0; font-size:11px; color:var(--text-4); display:none;"><span id="footerSourceText"></span></div>
         </div>
     </div>
 </div>
@@ -337,6 +338,15 @@ function renderChart(resp) {
     }
 
     document.getElementById("chart_summary").innerHTML = summaryHtml;
+
+    // 数据来源脚注
+    var footer = document.getElementById("dataSourceFooter");
+    var sourceText = document.getElementById("footerSourceText");
+    if (footer && sourceText && resp.source) {
+        var sourceMap = {"metabase-api": "Metabase API 实时数据", "sls": "SLS 实时数据", "metabase": "本地数据库"};
+        sourceText.textContent = "数据来源: " + (sourceMap[resp.source] || "本地数据库");
+        footer.style.display = "block";
+    }
 }
 
 async function queryChart() {

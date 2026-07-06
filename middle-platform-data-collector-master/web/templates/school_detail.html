@@ -283,6 +283,51 @@ var _sdOptions = null;
 var _currentType = '直营校';
 var USER_ID = {{ current_user.id if current_user else 0 }};
 
+/* ── 数据缓存（sessionStorage）── */
+function saveSDCache(cacheObj) {
+    try { cacheObj.timestamp = Date.now(); sessionStorage.setItem('sd_cache_'+USER_ID, JSON.stringify(cacheObj)); } catch(e){}
+}
+function loadSDCache() {
+    try {
+        var raw = sessionStorage.getItem('sd_cache_'+USER_ID);
+        if (!raw) return null;
+        var c = JSON.parse(raw);
+        if (Date.now() - c.timestamp > 30*60*1000) { sessionStorage.removeItem('sd_cache_'+USER_ID); return null; }
+        return c;
+    } catch(e){ return null; }
+}
+function clearSDCache() { try { sessionStorage.removeItem('sd_cache_'+USER_ID); } catch(e){} }
+function getSDFilterValues() {
+    return {
+        school_id: document.getElementById('f_school').value,
+        school_name: (document.querySelector('#ss_school .ss-input')||{}).value || '',
+        start: document.getElementById('f_start').value,
+        end: document.getElementById('f_end').value,
+        stage: document.getElementById('f_stage').value,
+        grade: document.getElementById('f_grade').value,
+        subject: document.getElementById('f_subject').value,
+        type: _currentType
+    };
+}
+function restoreSDFilters(f) {
+    if (!f) return;
+    if (f.start) document.getElementById('f_start').value = f.start;
+    if (f.end) document.getElementById('f_end').value = f.end;
+    if (f.type && ['直营校','测试学校','托管校'].indexOf(f.type)>=0) {
+        _currentType = f.type;
+        document.querySelectorAll('#typeTabs .type-tab-sm').forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-type')===f.type); });
+    }
+    if (f.school_id) {
+        _schoolId = f.school_id;
+        document.getElementById('f_school').value = f.school_id;
+        var inp = document.querySelector('#ss_school .ss-input');
+        if (inp && f.school_name) inp.value = f.school_name;
+    }
+    if (f.stage) { document.getElementById('f_stage').value = f.stage; }
+    if (f.grade) { document.getElementById('f_grade').value = f.grade; }
+    if (f.subject) { document.getElementById('f_subject').value = f.subject; }
+}
+
 // ── 可搜索下拉组件 ──
 function initSS(wrapId, selectEl, placeholder) {
     var wrap = document.getElementById(wrapId);
@@ -501,11 +546,26 @@ async function initSD() {
         var o = document.createElement('option'); o.value = s; o.textContent = s; subjSel.appendChild(o);
     });
 
-    if (_schoolId) loadSchool();
+    // 检查缓存：有缓存则恢复，不自动查询
+    var _sdCache = loadSDCache();
+    if (_sdCache && _sdCache.schoolData) {
+        restoreSDFilters(_sdCache.filters);
+        _schoolData = _sdCache.schoolData;
+        renderSchool(_schoolData);
+        console.log('单校详情从缓存恢复');
+    } else if (_schoolId) {
+        loadSchool();
+    }
 
-    // 绑定 Enter 键触发查询
-    document.querySelectorAll('#globalFilterBar .ss-input').forEach(function(inp) {
-        inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); doQuerySD(); } });
+    // 绑定 Enter 键触发查询（仅在下拉框关闭时生效）
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter') return;
+        if (e.target.tagName === 'BUTTON') return;
+        // 检查是否有下拉框打开
+        var openDD = document.querySelector('.ss-dropdown.open');
+        if (openDD) return;
+        var fb = document.getElementById('globalFilterBar');
+        if (fb && fb.contains(document.activeElement)) { e.preventDefault(); doQuerySD(); }
     });
 }
 
@@ -584,6 +644,11 @@ async function loadSchool() {
         }
         _schoolData = { rows: rows, columns: data.columns || [], school: rows[0] };
         renderSchool(_schoolData);
+        // 保存到缓存
+        saveSDCache({
+            schoolData: _schoolData,
+            filters: getSDFilterValues()
+        });
     } catch(e) {
         console.error('Load error:', e);
         document.getElementById('schoolTitle').textContent = '加载失败';

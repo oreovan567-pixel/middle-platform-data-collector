@@ -77,7 +77,7 @@
         {% if current_user and current_user.can_manage_schools %}
         <button class="sidebar-link sidebar-btn" onclick="openSchoolMgmt()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            <span>学校管理</span>
+            <span>用户管理</span>
         </button>
         {% endif %}
     </nav>
@@ -275,10 +275,16 @@
     <div class="modal-card modal-card-lg">
         <div class="modal-header">
             <div>
-                <h3>学校管理</h3>
+                <h3>用户管理</h3>
                 <p class="modal-desc">设置每所学校的负责人和优先级</p>
             </div>
-            <button class="modal-close" onclick="closeModal('schoolMgmtModal')">&times;</button>
+            <div style="display:flex;align-items:center;gap:10px">
+                <button class="btn-primary btn-sm" onclick="openCreateAccountModal()" style="padding:6px 14px;font-size:13px;font-weight:500">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    创建账号
+                </button>
+                <button class="modal-close" onclick="closeModal('schoolMgmtModal')">&times;</button>
+            </div>
         </div>
         <div class="modal-body">
             <!-- 类型 Tab 栏 -->
@@ -308,6 +314,45 @@
         <div class="modal-footer">
             <button class="btn-outline" onclick="closeModal('schoolMgmtModal')">取消</button>
             <button class="btn-primary" onclick="saveSchoolMgmt()">保存设置</button>
+        </div>
+    </div>
+</div>
+
+
+<!-- 创建账号 -->
+<div class="modal-overlay" id="createAccountModal" onclick="if(event.target===this)closeModal('createAccountModal')">
+    <div class="modal-card" style="width:420px">
+        <div class="modal-header">
+            <div>
+                <h3>创建账号</h3>
+                <p class="modal-desc">新增系统登录账号</p>
+            </div>
+            <button class="modal-close" onclick="closeModal('createAccountModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="createAccountMsg" style="display:none;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:14px;text-align:center"></div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px">账号（用户名/手机号）<span style="color:var(--danger)">*</span></label>
+                <input type="text" id="newAccountUsername" class="pwd-input" placeholder="请输入用户名或手机号">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px">密码 <span style="color:var(--danger)">*</span></label>
+                <input type="password" id="newAccountPassword" class="pwd-input" placeholder="请设置密码（至少6位）">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+                <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:6px">确认密码 <span style="color:var(--danger)">*</span></label>
+                <input type="password" id="newAccountPasswordConfirm" class="pwd-input" placeholder="请再次输入密码">
+            </div>
+            <div class="form-group" style="margin-bottom:6px">
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;cursor:pointer">
+                    <input type="checkbox" id="newAccountIsAdmin" style="accent-color:var(--primary)">
+                    管理员权限
+                </label>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-outline" onclick="closeModal('createAccountModal')">取消</button>
+            <button class="btn-primary" id="createAccountBtn" onclick="doCreateAccount()">创建</button>
         </div>
     </div>
 </div>
@@ -455,6 +500,64 @@ function changePassword() {
     .finally(function(){
         btn.disabled = false;
         btn.textContent = '确认修改';
+    });
+}
+
+
+// ── 创建账号 ──
+function openCreateAccountModal() {
+    document.getElementById('newAccountUsername').value = '';
+    document.getElementById('newAccountPassword').value = '';
+    document.getElementById('newAccountPasswordConfirm').value = '';
+    document.getElementById('newAccountIsAdmin').checked = false;
+    document.getElementById('createAccountMsg').style.display = 'none';
+    openModal('createAccountModal');
+}
+
+function doCreateAccount() {
+    var username = document.getElementById('newAccountUsername').value.trim();
+    var password = document.getElementById('newAccountPassword').value;
+    var passwordConfirm = document.getElementById('newAccountPasswordConfirm').value;
+    var isAdmin = document.getElementById('newAccountIsAdmin').checked;
+    var msgEl = document.getElementById('createAccountMsg');
+    var btn = document.getElementById('createAccountBtn');
+
+    function showMsg(text, ok) {
+        msgEl.style.display = 'block';
+        msgEl.textContent = text;
+        msgEl.style.background = ok ? '#f0fdf4' : '#fef2f2';
+        msgEl.style.color = ok ? '#16a34a' : '#dc2626';
+        msgEl.style.borderColor = ok ? '#bbf7d0' : '#fecaca';
+    }
+
+    if (!username) { showMsg('请输入账号', false); return; }
+    if (!password) { showMsg('请输入密码', false); return; }
+    if (password.length < 6) { showMsg('密码至少6位', false); return; }
+    if (password !== passwordConfirm) { showMsg('两次密码不一致', false); return; }
+
+    btn.disabled = true;
+    btn.textContent = '创建中...';
+
+    fetch('/api/users/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username, password: password, is_admin: isAdmin })
+    })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+    .then(function(result) {
+        if (result.ok) {
+            showMsg('账号 "' + username + '" 创建成功', true);
+            setTimeout(function() { closeModal('createAccountModal'); }, 1500);
+        } else {
+            showMsg(result.data.error || '创建失败', false);
+        }
+    })
+    .catch(function(e) {
+        showMsg('网络错误: ' + e.message, false);
+    })
+    .finally(function() {
+        btn.disabled = false;
+        btn.textContent = '创建';
     });
 }
 

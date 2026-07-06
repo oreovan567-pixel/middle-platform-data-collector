@@ -257,6 +257,11 @@
 <div class="empty-state" id="emptyState" style="display:none">
     <p>暂无数据，请调整筛选条件后重新查询</p>
 </div>
+
+<!-- 数据来源脚注 -->
+<div class="data-source-footer" id="dataSourceFooter" style="display:none; text-align:center; padding:10px 20px; font-size:11px; color:var(--text-4);">
+    <span id="footerSourceText"></span>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -312,6 +317,14 @@ async function doQuery() {
         _cmpData = data;
         renderCharts(data);
         renderDiffTable(data);
+        // 数据来源脚注
+        var footer = document.getElementById("dataSourceFooter");
+        var sourceText = document.getElementById("footerSourceText");
+        if (footer && sourceText) {
+            var sourceMap = {"metabase-api": "Metabase API 实时数据", "sls": "SLS 实时数据", "metabase": "本地数据库"};
+            sourceText.textContent = "数据来源: " + (sourceMap[data.source] || "本地数据库");
+            footer.style.display = "block";
+        }
     } catch(e) { alert("请求失败: " + e.message); }
     finally {
         document.getElementById("loadingOverlay").style.display = "none";

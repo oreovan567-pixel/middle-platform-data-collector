@@ -246,11 +246,11 @@
     </div>
     <div class="fg">
         <label>开始日期<span class="req">*</span></label>
-        <input type="date" id="f_start" value="2026-06-01">
+        <input type="date" id="f_start">
     </div>
     <div class="fg">
         <label>结束日期<span class="req">*</span></label>
-        <input type="date" id="f_end" value="2026-06-30">
+        <input type="date" id="f_end">
     </div>
     <div class="fg" style="min-width:0">
         <label>&nbsp;</label>
@@ -373,6 +373,59 @@ var _cmpData = null;
 var _currentType = '直营校';  // 当前选中的学校类型
 var USER_ID = {{ current_user.id if current_user else 0 }};  // 当前用户ID，用于偏好隔离
 
+/* ── 数据缓存（sessionStorage）── */
+var _trendCache = null;
+function saveIndexCache(cacheObj) {
+    try { cacheObj.timestamp = Date.now(); sessionStorage.setItem('idx_cache_'+USER_ID, JSON.stringify(cacheObj)); } catch(e){}
+}
+function loadIndexCache() {
+    try {
+        var raw = sessionStorage.getItem('idx_cache_'+USER_ID);
+        if (!raw) return null;
+        var c = JSON.parse(raw);
+        if (Date.now() - c.timestamp > 30*60*1000) { sessionStorage.removeItem('idx_cache_'+USER_ID); return null; }
+        return c;
+    } catch(e){ return null; }
+}
+function clearIndexCache() { try { sessionStorage.removeItem('idx_cache_'+USER_ID); } catch(e){} }
+function getFilterValues() {
+    return {
+        start: document.getElementById('f_start').value,
+        end: document.getElementById('f_end').value,
+        type: _currentType,
+        school_id: document.getElementById('f_school').value,
+        school_name: (document.querySelector('#ss_school .ss-input')||{}).value || '',
+        stage: document.getElementById('f_stage').value,
+        grade: document.getElementById('f_grade').value,
+        subject: document.getElementById('f_subject').value
+    };
+}
+function restoreFilterValues(f) {
+    if (!f) return;
+    if (f.start) document.getElementById('f_start').value = f.start;
+    if (f.end) document.getElementById('f_end').value = f.end;
+    if (f.type && ['直营校','测试学校','托管校'].indexOf(f.type)>=0) {
+        _currentType = f.type;
+        document.querySelectorAll('#typeTabs .type-tab-sm').forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-type')===f.type); });
+    }
+    if (f.school_id) {
+        document.getElementById('f_school').value = f.school_id;
+        var inp = document.querySelector('#ss_school .ss-input');
+        if (inp && f.school_name) inp.value = f.school_name;
+    }
+    if (f.stage) { document.getElementById('f_stage').value = f.stage; var s=_ss['ss_stage']; if(s) s.inp.value=f.stage; }
+    if (f.grade) { document.getElementById('f_grade').value = f.grade; var s=_ss['ss_grade']; if(s) s.inp.value=f.grade; }
+    if (f.subject) { document.getElementById('f_subject').value = f.subject; var s=_ss['ss_subject']; if(s) s.inp.value=f.subject; }
+}
+function renderFromCache(cache) {
+    if (!cache || !cache.moduleUsage) return false;
+    restoreFilterValues(cache.filters);
+    if (cache.kpiCur) updateKPIs(cache.kpiCur, cache.kpiTb||null, cache.kpiHb||null);
+    if (cache.chartData) { _trendCache = cache.trendData || null; renderCharts(cache.chartData); }
+    renderTable(cache.moduleUsage);
+    return true;
+}
+
 /* ── 日期工具函数 ── */
 function parseDate(s) { var p=s.split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
 function fmtDate(d) { return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -442,7 +495,7 @@ async function updateDashboard() {
     var cur = extractKPIs(data);
     var tb = null, hb = null;
 
-    // fallback：查询同比/环比时段的 module-usage，走相同的筛选逻辑
+    // fallback：查询同比/环比时段的 module-usage（并行执行，更快）
     var _doFallback = async function() {
         var sD = parseDate(startDate), eD = parseDate(endDate);
         var days = daysBetween(sD, eD);
@@ -450,13 +503,21 @@ async function updateDashboard() {
         var tStart = new Date(tEnd.getTime() - (days-1)*864e5);
         var mStart = new Date(sD.getFullYear(), sD.getMonth()-1, sD.getDate());
         var mEnd = new Date(eD.getFullYear(), eD.getMonth()-1, eD.getDate());
-        var _tb = null, _hb = null;
-        try { _tb = await fetchModuleUsage(buildParams(fmtDate(tStart), fmtDate(tEnd))); } catch(e2){}
-        try { _hb = await fetchModuleUsage(buildParams(fmtDate(mStart), fmtDate(mEnd))); } catch(e2){}
+        // 并行请求同比和环比
+        var [_tb, _hb] = await Promise.all([
+            fetchModuleUsage(buildParams(fmtDate(tStart), fmtDate(tEnd))).catch(function(){return null;}),
+            fetchModuleUsage(buildParams(fmtDate(mStart), fmtDate(mEnd))).catch(function(){return null;})
+        ]);
         return { tb: _tb ? extractKPIs(_tb) : null, hb: _hb ? extractKPIs(_hb) : null };
     };
 
-    var isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    // 判断是否为本地/内网服务器（非 Vercel 部署）
+    // - localhost / 127.0.0.1 / ::1 是本机
+    // - 192.168.x.x / 10.x.x.x / 172.16-31.x.x 是内网
+    // - 只有 Vercel 域名（.vercel.app）才走 kpi-summary 避免超时
+    var _h = window.location.hostname;
+    var isLocal = _h === 'localhost' || _h === '127.0.0.1' || _h === '::1'
+        || /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(_h);
     if (isLocal) {
         // 本地服务器：直接走 fallback，数据与 module-usage 同源一致
         var fb = await _doFallback();
@@ -488,6 +549,7 @@ async function updateDashboard() {
 
     updateKPIs(cur, tb, hb);
     renderCharts(data);
+    return { cur: cur, tb: tb, hb: hb, chartData: data, moduleUsage: data };
 }
 
 function updateKPIs(cur, tb, hb) {
@@ -570,12 +632,17 @@ function renderCharts(data) {
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } } }, cutout: '65%' }
     });
 
-    // 折线图/柱状图 - 全校周期趋势（从 API 获取真实数据）
-    fetch('/api/charts/trend?' + buildParams(
-        document.getElementById('f_start').value,
-        document.getElementById('f_end').value
-    ).toString())
-    .then(function(r){ return r.json(); })
+    // 折线图/柱状图 - 全校周期趋势（优先用缓存）
+    var _trendPromise;
+    if (_trendCache) {
+        _trendPromise = Promise.resolve(_trendCache);
+    } else {
+        _trendPromise = fetch('/api/charts/trend?' + buildParams(
+            document.getElementById('f_start').value,
+            document.getElementById('f_end').value
+        ).toString()).then(function(r){return r.json();}).then(function(t){_trendCache=t;return t;});
+    }
+    _trendPromise
     .then(function(trend) {
         if (_lineChart) _lineChart.destroy();
         var isLine = trend.chart_type === 'line';
@@ -645,12 +712,18 @@ async function doQuery() {
     var params = buildParams(startDate, endDate);
 
     try {
-        // KPI + 图表（含同比/环比对比）
-        await updateDashboard();
-        // 表格数据
-        var resp = await fetchModuleUsage(params);
+        // KPI + 图表 + 表格数据（一次调用，复用结果）
+        var dashResult = await updateDashboard();
+        var resp = dashResult.moduleUsage;  // 复用已获取的数据，不再重复请求
         if (resp.error) { alert("查询失败: " + resp.error); return; }
         renderTable(resp);
+        // 保存到缓存
+        saveIndexCache({
+            moduleUsage: resp,
+            kpiCur: dashResult.cur, kpiTb: dashResult.tb, kpiHb: dashResult.hb,
+            chartData: dashResult.chartData, trendData: _trendCache,
+            filters: getFilterValues()
+        });
     } catch(e) { alert("请求失败: " + e.message); }
     finally {
         document.getElementById("loadingOverlay").style.display = "none";
@@ -688,7 +761,14 @@ function renderTable(data) {
     if (tuoguanRows.length) parts.push('<span class="tuoguan">' + tuoguanRows.length + ' 托管校</span>');
     document.getElementById("resultCount").innerHTML = parts.join(' + ');
 
-    var sourceHint = data.source === "metabase-api" ? "数据来源: Metabase API" : "数据来源: 本地数据库";
+    var sourceHint;
+    if (data.source === 'metabase-api') {
+        sourceHint = '数据来源: Metabase API 实时数据';
+    } else if (data.source === 'sls') {
+        sourceHint = '数据来源: SLS 实时数据';
+    } else {
+        sourceHint = '数据来源: 本地数据库';
+    }
     document.getElementById("footerSourceText").textContent = rows.length + "所学校 · " + columns.length + "个指标横向对比 · " + sourceHint;
     document.getElementById("statusBar").style.display = "flex";
     document.getElementById("btnExport").disabled = false;
@@ -718,11 +798,12 @@ function buildSectionBlock(typeClass, typeName, rows, columns, tip) {
         var badge = (idx===8) ? '<span class="th-badge">求和</span>' : '';
         html += '<th class="' + extraClass + '">' + badge + displayName + extraBtn + '</th>';
     });
-    html += '</tr></thead><tbody>' + buildDataRows(rows, columns) + '</tbody></table></div>';
-    // 汇总
-    html += '<div class="cmp-summary"><table class="cmp-table" style="min-width:1800px"><colgroup>' + colgroup + '</colgroup><tbody>';
+    html += '</tr></thead><tbody>' + buildDataRows(rows, columns) + '</tbody></table>';
+    // 汇总（放在滚动容器内，与主表共享横向滚动）
+    html += '<div class="cmp-summary" style="position:sticky;bottom:0;z-index:3"><table class="cmp-table" style="min-width:1800px"><colgroup>' + colgroup + '</colgroup><tbody>';
     html += buildAverageRow(rows, columns) + buildMinMaxRow(rows, columns, "max") + buildMinMaxRow(rows, columns, "min");
     html += '</tbody></table></div>';
+    html += '</div>'; // 关闭 cmp-scroll
     return html;
 }
 
@@ -852,7 +933,7 @@ function initSS(id, data) {
         var opts=s.dd.querySelectorAll('.ss-option'), cnt=opts.length;
         if(e.key==='ArrowDown'){e.preventDefault();s.hi=Math.min(s.hi+1,cnt-1);updateHi(id);}
         else if(e.key==='ArrowUp'){e.preventDefault();s.hi=Math.max(s.hi-1,0);updateHi(id);}
-        else if(e.key==='Enter'){e.preventDefault();if(cnt>0&&s.hi>=0)selOpt(id,opts[s.hi]);else if(cnt>0)selOpt(id,opts[0]);else closeSS(id);}
+        else if(e.key==='Enter'){e.preventDefault();e.stopImmediatePropagation();if(cnt>0&&s.hi>=0)selOpt(id,opts[s.hi]);else if(cnt>0)selOpt(id,opts[0]);else closeSS(id);}
         else if(e.key==='Escape'){closeSS(id);inp.blur();}
     });
     document.addEventListener('click',function(e){if(!c.contains(e.target))closeSS(id);});
@@ -950,7 +1031,12 @@ async function initPage() {
 
     document.getElementById("f_stage").addEventListener("change", onStageChange);
 
-    // 恢复筛选偏好
+    // 默认日期设为当天（新用户无偏好时显示当天，有偏好时 restorePreferences 会覆盖）
+    var todayStr = fmtDate(new Date());
+    if (!document.getElementById('f_start').value) document.getElementById('f_start').value = todayStr;
+    if (!document.getElementById('f_end').value) document.getElementById('f_end').value = todayStr;
+
+    // 恢复筛选偏好（优先级高于默认值）
     restorePreferences();
 
     document.addEventListener('keydown', function(e){
@@ -961,7 +1047,13 @@ async function initPage() {
         if(fb && fb.contains(document.activeElement)){e.preventDefault();doQuery();}
     });
 
-    doQuery();
+    // 检查缓存：有缓存则恢复，不自动查询
+    var _cache = loadIndexCache();
+    if (_cache && renderFromCache(_cache)) {
+        console.log('从缓存恢复数据');
+    } else {
+        doQuery();
+    }
 
     // 初始化图表卡片拉伸功能
     initCardResize('#chartGrid .chart-card');
