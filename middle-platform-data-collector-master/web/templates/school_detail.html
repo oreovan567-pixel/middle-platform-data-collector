@@ -193,9 +193,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
             查询
         </button>
+        <input type="text" id="pptTitleInput" placeholder="PPT封面标题（可选）" style="padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:180px;" />
         <button class="btn-export btn-sm" onclick="doExportPPT()" id="btnExportPPT">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
             导出PPT
+        </button>
+        <button class="btn-sm" onclick="doExportHTML()" style="background:#059669;color:#fff;border:none;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+            导出HTML
         </button>
         </div>
     </div>
@@ -1011,13 +1016,15 @@ async function doExportPPT() {
         var schoolId = _schoolId || document.getElementById('f_school').value;
         if (!schoolId) { alert('请先选择学校'); resetBtn(); return; }
 
+        var pptTitle = document.getElementById('pptTitleInput') ? document.getElementById('pptTitleInput').value.trim() : '';
         var resp = await fetch('/api/export/ppt-screenshots', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 start_date: startDate,
                 end_date: endDate,
-                school_id: schoolId
+                school_id: schoolId,
+                ppt_title: pptTitle
             })
         });
         if (!resp.ok) {
@@ -1056,7 +1063,7 @@ function showPreviewModal(data) {
     // 头部
     var header = document.createElement('div');
     header.style.cssText = 'padding:16px 24px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;';
-    header.innerHTML = '<h3 style="margin:0;font-size:18px;color:#1a73e8;">PPT 预览</h3>' +
+    header.innerHTML = '<h3 style="margin:0;font-size:18px;color:#1a73e8;">PPT 预览 <span style="font-size:12px;color:#666;font-weight:normal;">（下载的PPT将套用模板样式）</span></h3>' +
         '<span style="font-size:13px;color:#6b7280;">' + data.school_name + ' | ' + data.start_date + ' ~ ' + data.end_date + '</span>';
     modal.appendChild(header);
 
@@ -1180,5 +1187,47 @@ async function doDownloadPPT() {
 }
 
 initSD();
+
+function doExportHTML() {
+    var startDate = document.getElementById('f_start').value;
+    var endDate = document.getElementById('f_end').value;
+    var pptTitle = document.getElementById('pptTitleInput') ? document.getElementById('pptTitleInput').value.trim() : '';
+    if (!startDate || !endDate) { alert('请选择日期范围'); return; }
+    var schoolId = '';
+    var match = window.location.pathname.match(/\/school\/(\d+)/);
+    if (match) schoolId = match[1];
+    
+    var btn = event.target.closest('button');
+    var origText = btn.innerHTML;
+    btn.innerHTML = '生成中...';
+    btn.disabled = true;
+    
+    fetch('/api/export/html-report', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            start_date: startDate,
+            end_date: endDate,
+            school_id: schoolId,
+            report_title: pptTitle || '教育平台数据看板'
+        })
+    }).then(function(resp) {
+        if (!resp.ok) throw new Error('导出失败');
+        return resp.blob();
+    }).then(function(blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = '数据报告_' + startDate + '_' + endDate + '.html';
+        a.click();
+        URL.revokeObjectURL(url);
+    }).catch(function(e) {
+        alert('导出失败: ' + e.message);
+    }).finally(function() {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+    });
+}
+
 </script>
 {% endblock %}

@@ -299,11 +299,19 @@
 
 <!-- ===== 图表区 ===== -->
 <div class="chart-grid" id="chartGrid">
+    <!-- 新增：日活/周活比例双轴图 -->
+    <div class="chart-card full-width" data-gs-no-resize="true">
+        <div class="chart-card-title">学校活跃比例对比</div>
+        <div class="chart-card-subtitle">日活比例（折线）与周活比例（柱状）对比分析</div>
+        <div class="chart-container" style="height:360px"><canvas id="chartActiveRatio"></canvas></div>
+        <div id="activeRatioSummary" style="padding:12px 16px;font-size:13px;color:#64748b;line-height:1.8;border-top:1px solid #e5e7eb"></div>
+    </div>
     <!-- 第一行：图表1 全宽 -->
     <div class="chart-card full-width" data-gs-no-resize="true">
         <div class="chart-card-title">各校使用率排名</div>
         <div class="chart-card-subtitle">点击可查看单校详情</div>
         <div class="chart-container" style="height:360px"><canvas id="chartBar"></canvas></div>
+        <div id="barChartSummary" style="padding:12px 16px;font-size:13px;color:#64748b;line-height:1.8;border-top:1px solid #e5e7eb"></div>
     </div>
     <!-- 第二行左：图表2 -->
     <div class="chart-card">
@@ -322,6 +330,13 @@
         <div class="chart-card-title">日活人数趋势</div>
         <div class="chart-card-subtitle">筛选时间范围内的总日活人数变化趋势</div>
         <div class="chart-container"><canvas id="chartLine"></canvas></div>
+    </div>
+    <!-- 新增：作业次数柱状图 -->
+    <div class="chart-card full-width" data-gs-no-resize="true">
+        <div class="chart-card-title">各校作业次数统计</div>
+        <div class="chart-card-subtitle">筛选时间范围内的作业场次排名</div>
+        <div class="chart-container" style="height:360px"><canvas id="chartHomework"></canvas></div>
+        <div id="homeworkSummary" style="padding:12px 16px;font-size:13px;color:#64748b;line-height:1.8;border-top:1px solid #e5e7eb"></div>
     </div>
 </div>
 
@@ -584,9 +599,87 @@ function updateKPIs(cur, tb, hb) {
 
 var _lineChart = null;  // 全局持久化，避免重复调用时旧图表未销毁
 var _barChart = null, _donutChart = null, _radarChart = null;
+var _activeRatioChart = null, _homeworkChart = null;
 
 function renderCharts(data) {
     var rows = data.rows || [];
+    
+    // ========== 新增：日活/周活比例双轴图 ==========
+    if (_activeRatioChart) _activeRatioChart.destroy();
+    var arLabels = [], arDailyData = [], arWeeklyData = [], arSchoolData = [];
+    // 按日活比例排序
+    var arSorted = rows.slice().sort(function(a,b){ return (b.rate_values||[])[10] - (a.rate_values||[])[10]; });
+    arSorted.forEach(function(r) {
+        var name = r.display_name || r.school;
+        arLabels.push(name);
+        arDailyData.push((r.rate_values || [])[10] || 0);
+        arWeeklyData.push((r.rate_values || [])[11] || 0);
+        arSchoolData.push({name: name, daily: (r.rate_values || [])[10] || 0, weekly: (r.rate_values || [])[11] || 0});
+    });
+    _activeRatioChart = new Chart(document.getElementById('chartActiveRatio'), {
+        type: 'bar',
+        data: {
+            labels: arLabels,
+            datasets: [
+                {
+                    type: 'line',
+                    label: '日活比例',
+                    data: arDailyData,
+                    borderColor: 'rgb(99,102,241)',
+                    backgroundColor: 'rgba(99,102,241,0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    yAxisID: 'y',
+                    order: 1
+                },
+                {
+                    type: 'bar',
+                    label: '周活比例',
+                    data: arWeeklyData,
+                    backgroundColor: 'rgba(173,232,130,0.7)',
+                    borderColor: 'rgb(173,232,130)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                    yAxisID: 'y1',
+                    order: 2
+                }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'top', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } },
+                tooltip: { callbacks: { label: function(ctx){ return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%'; } } }
+            },
+            scales: {
+                y: { type: 'linear', position: 'left', beginAtZero: true, title: { display: true, text: '日活比例(%)' }, ticks: { callback: function(v){return v+'%';} }, grid: { color: 'rgb(243,244,246)' } },
+                y1: { type: 'linear', position: 'right', beginAtZero: true, title: { display: true, text: '周活比例(%)' }, ticks: { callback: function(v){return v+'%';} }, grid: { display: false } },
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 60, minRotation: 30, autoSkip: false } }
+            }
+        }
+    });
+    // 生成活跃比例摘要文字
+    if (arSchoolData.length > 0) {
+        var dailySorted = arSchoolData.slice().sort(function(a,b){ return b.daily - a.daily; });
+        var weeklySorted = arSchoolData.slice().sort(function(a,b){ return b.weekly - a.weekly; });
+        var top5Daily = dailySorted.slice(0, 5).map(function(s){ return s.name; }).join('、');
+        var bottom3Daily = dailySorted.slice(-3).reverse().map(function(s){ return s.name; }).join('、');
+        var top5Weekly = weeklySorted.slice(0, 5).map(function(s){ return s.name; }).join('、');
+        var bottom3Weekly = weeklySorted.slice(-3).reverse().map(function(s){ return s.name; }).join('、');
+        document.getElementById('activeRatioSummary').innerHTML = 
+            '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+            '<span>日活比例较高学校：<b style="color:#6366f1">' + top5Daily + '</b></span>' +
+            '<span>日活比例较差学校：<b style="color:#f59e0b">' + bottom3Daily + '</b></span>' +
+            '</div>' +
+            '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:4px">' +
+            '<span>周活比例较高学校：<b style="color:#86efac">' + top5Weekly + '</b></span>' +
+            '<span>周活比例较差学校：<b style="color:#fbbf24">' + bottom3Weekly + '</b></span>' +
+            '</div>';
+    }
+    
     // 柱状图 - 各校使用率排名（先销毁旧实例）
     if (_barChart) _barChart.destroy();
     var barLabels = [], barData = [], barColors = [], barSchoolIds = [];
@@ -616,6 +709,16 @@ function renderCharts(data) {
             }
         }
     });
+    // 生成使用率摘要文字（前5名/后3名）
+    if (sorted.length > 0) {
+        var top5 = sorted.slice(0, Math.min(5, sorted.length)).map(function(r){ return r.display_name || r.school; }).join(' ');
+        var bottom3 = sorted.slice(-Math.min(3, sorted.length)).reverse().map(function(r){ return r.display_name || r.school; }).join(' ');
+        document.getElementById('barChartSummary').innerHTML = 
+            '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+            '<span>使用率较高学校：<b style="color:#10b981">' + top5 + '</b></span>' +
+            '<span>使用率较差学校：<b style="color:#f59e0b">' + bottom3 + '</b></span>' +
+            '</div>';
+    }
 
     // 环形图 - 优先级分层（使用真实 priority 字段）
     if (_donutChart) _donutChart.destroy();
@@ -683,6 +786,69 @@ function renderCharts(data) {
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
             scales: { r: { beginAtZero: true, ticks: { display: false }, grid: { color: 'rgb(229,231,235)' }, pointLabels: { font: { size: 11 } } } } }
     });
+
+    // ========== 新增：作业次数柱状图 ==========
+    if (_homeworkChart) _homeworkChart.destroy();
+    var hwLabels = [], hwData = [], hwPerCapita = [], hwSchoolData = [];
+    // 按作业次数排序（从高到低）
+    var hwSorted = rows.slice().sort(function(a,b){ return (b.rate_values||[])[8] - (a.rate_values||[])[8]; });
+    hwSorted.forEach(function(r) {
+        var name = r.display_name || r.school;
+        var hwCount = (r.rate_values || [])[8] || 0;
+        var hwPerCap = (r.rate_values || [])[9] || 0;
+        hwLabels.push(name);
+        hwData.push(hwCount);
+        hwPerCapita.push(hwPerCap);
+        hwSchoolData.push({name: name, count: hwCount, perCapita: hwPerCap});
+    });
+    // 过滤掉作业次数为 0 的学校
+    var hwFiltered = hwSchoolData.filter(function(s){ return s.count > 0; });
+    if (hwFiltered.length > 0) {
+        _homeworkChart = new Chart(document.getElementById('chartHomework'), {
+            type: 'bar',
+            data: {
+                labels: hwFiltered.map(function(s){ return s.name; }),
+                datasets: [{
+                    label: '作业次数',
+                    data: hwFiltered.map(function(s){ return s.count; }),
+                    backgroundColor: hwFiltered.map(function(s){
+                        // 根据次数生成渐变色
+                        var maxCount = Math.max.apply(null, hwFiltered.map(function(x){ return x.count; }));
+                        var ratio = s.count / (maxCount || 1);
+                        return 'rgba(251,191,36,' + (0.5 + ratio * 0.4) + ')';
+                    }),
+                    borderColor: 'rgb(251,191,36)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { 
+                        label: function(ctx){ 
+                            var idx = ctx.dataIndex;
+                            var perCap = hwFiltered[idx].perCapita;
+                            return '作业次数: ' + ctx.parsed.y + '次 (人均: ' + perCap.toFixed(1) + '次)'; 
+                        } 
+                    } }
+                },
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: '作业次数' }, ticks: { callback: function(v){return v+'次';} }, grid: { color: 'rgb(243,244,246)' } },
+                    x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 60, minRotation: 30, autoSkip: false } }
+                }
+            }
+        });
+        // 生成作业次数摘要文字（前5名 + 人均次数）
+        var top5Hw = hwFiltered.slice(0, 5).map(function(s){ 
+            return s.name + '(' + s.count + '次/人均' + s.perCapita.toFixed(1) + ')'; 
+        }).join('、');
+        document.getElementById('homeworkSummary').innerHTML = 
+            '<span>使用较好的学校：<b style="color:#d97706">' + top5Hw + '</b></span>';
+    } else {
+        document.getElementById('homeworkSummary').innerHTML = '<span style="color:#94a3b8">暂无作业次数数据</span>';
+    }
 }
 
 /* ═══════════════════════════════════════
