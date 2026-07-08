@@ -1209,13 +1209,12 @@ async function initPage() {
         if(fb && fb.contains(document.activeElement)){e.preventDefault();doQuery();}
     });
 
-    // 检查缓存：有缓存则恢复，不自动查询
+    // 检查缓存：有缓存则恢复，不自动查询（等待用户手动点击"查询"或按Enter）
     var _cache = loadIndexCache();
     if (_cache && renderFromCache(_cache)) {
         console.log('从缓存恢复数据');
-    } else {
-        doQuery();
     }
+    // 无缓存时也不自动查询，等待用户手动触发
 
     // 初始化图表卡片拉伸功能
     initCardResize('#chartGrid .chart-card');
