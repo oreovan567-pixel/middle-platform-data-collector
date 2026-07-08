@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}个人设置 - 数据采集工具{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>个人设置</h1>
+</div>
+
+<div class="card" style="max-width:640px">
+    <div id="settingsMsg" class="msg-box"></div>
+
+    <div class="form-section-header" style="margin-top:0">
+        <h3>平台凭证</h3>
+        <span class="section-desc">设置各采集系统的登录账号，留空使用默认配置</span>
+    </div>
+
+    <div class="credential-block">
+        <div class="credential-block-title">Lida 系统</div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" id="lidaUser" placeholder="Lida 用户名">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <div class="pwd-wrap">
+                    <input type="password" id="lidaPwd" placeholder="Lida 密码">
+                    <button type="button" class="pwd-toggle" onclick="togglePwd('lidaPwd',this)" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="credential-block">
+        <div class="credential-block-title">Grafana 系统</div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" id="grafanaUser" placeholder="Grafana 用户名">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <div class="pwd-wrap">
+                    <input type="password" id="grafanaPwd" placeholder="Grafana 密码">
+                    <button type="button" class="pwd-toggle" onclick="togglePwd('grafanaPwd',this)" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="credential-block">
+        <div class="credential-block-title">主站系统</div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>用户名</label>
+                <input type="text" id="mainUser" placeholder="主站用户名">
+            </div>
+            <div class="form-group">
+                <label>密码</label>
+                <div class="pwd-wrap">
+                    <input type="password" id="mainPwd" placeholder="主站密码">
+                    <button type="button" class="pwd-toggle" onclick="togglePwd('mainPwd',this)" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button class="btn btn-primary" onclick="saveCredentials()" id="saveCredBtn" style="padding:10px 28px;font-size:14px">保存凭证</button>
+    <span id="mySchools" style="display:block;margin-top:16px;font-size:12px;color:var(--text-3)"></span>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const eyeOffSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+const eyeOnSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+
+function togglePwd(inputId, btn) {
+    var inp = document.getElementById(inputId);
+    if (inp.type === 'password') {
+        inp.type = 'text';
+        btn.innerHTML = eyeOnSvg;
+    } else {
+        inp.type = 'password';
+        btn.innerHTML = eyeOffSvg;
+    }
+}
+
+function showMsg(text, ok) {
+    var el = document.getElementById('settingsMsg');
+    el.style.display = 'block';
+    el.textContent = text;
+    el.className = 'msg-box ' + (ok ? 'msg-success' : 'msg-error');
+    setTimeout(function() { el.style.display = 'none'; }, 3000);
+}
+
+async function loadMyInfo() {
+    try {
+        var res = await fetch('/api/users/me');
+        var data = await res.json();
+        if (!res.ok) return;
+        var u = data.user;
+        document.getElementById('lidaUser').value = u.lida_username || '';
+        document.getElementById('lidaPwd').value = u.lida_password || '';
+        document.getElementById('grafanaUser').value = u.grafana_username || '';
+        document.getElementById('grafanaPwd').value = u.grafana_password || '';
+        document.getElementById('mainUser').value = u.main_site_username || '';
+        document.getElementById('mainPwd').value = u.main_site_password || '';
+        if (u.assigned_schools) {
+            document.getElementById('mySchools').textContent = '分配学校: ' + u.assigned_schools;
+        } else {
+            document.getElementById('mySchools').textContent = '分配学校: 全部';
+        }
+    } catch (e) {}
+}
+
+async function saveCredentials() {
+    var btn = document.getElementById('saveCredBtn');
+    btn.disabled = true; btn.textContent = '保存中...';
+    try {
+        var body = {
+            lida_username: document.getElementById('lidaUser').value,
+            lida_password: document.getElementById('lidaPwd').value,
+            grafana_username: document.getElementById('grafanaUser').value,
+            grafana_password: document.getElementById('grafanaPwd').value,
+            main_site_username: document.getElementById('mainUser').value,
+            main_site_password: document.getElementById('mainPwd').value,
+        };
+        var res = await fetch('/api/users/me', {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(body)
+        });
+        var data = await res.json();
+        if (!res.ok) { showMsg(data.error || '保存失败', false); return; }
+        showMsg('凭证保存成功', true);
+        await loadMyInfo();
+    } catch (e) {
+        showMsg('网络错误', false);
+    } finally {
+        btn.disabled = false; btn.textContent = '保存凭证';
+    }
+}
+
+loadMyInfo();
+</script>
+{% endblock %}

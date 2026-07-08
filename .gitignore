@@ -1,0 +1,84 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# 配置文件（含密码等敏感信息）
+config/config.yaml
+config/config/
+models/models/
+scrapers/scrapers/
+services/services/
+web/web/
+
+# 数据库文件
+data/*.db
+data/downloads/
+data/exports/
+data/*.csv
+
+# 日志
+logs/*.log
+
+# 虚拟环境
+.env
+.venv/
+venv/
+env/
+
+# IDE 设置
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 大文件 / 临时文件
+*.exe
+*.zip
+*.tar.gz
+*.xlsx
+probe_result.txt
+query_combined.txt
+query_result.txt
+test_import.txt
+_db_tmp.txt
+debug_panels.py
+
+# 截图文件
+*.png
+
+# Cookies 文件
+cookies*.txt
+
+# 临时 JSON
+*_test.json
+mu_test.json
+
+# 旧项目目录（不纳入版本控制）
+middle-platform-data-collector-master/
+
+# 外部磁盘复制目录
+E__/
+
+# 其他临时文件
+cookies.txt
+cookies2.txt
+cookies_huang.txt
+cookies_li.txt
+screenshot.png
+data.db
+render_step1_current.png
+ui_bottom.png
+ui_charts.png
+ui_fullpage.png
+ui_mid.png
+ui_table.png
+ui_top.png
+.DS_Store
+
+# 备份文件
+*.bak_*

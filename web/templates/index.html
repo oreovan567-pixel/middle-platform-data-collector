@@ -1,0 +1,1304 @@
+{% extends "base.html" %}
+{% block title %}全校总览大盘 - 学校中台分析平台{% endblock %}
+
+{% block head %}
+<style>
+/* ── 多校对比明细区（底部嵌入） ── */
+.comparison-section {
+    background: var(--surface);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    margin-top: 24px;
+}
+.comparison-section-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+/* ── 维度 Tab ─ */
+.dim-tabs {
+    display: flex; gap: 0; margin-bottom: 20px;
+    border-radius: var(--r-md); overflow: hidden;
+    border: 1px solid var(--border); width: fit-content;
+}
+.dim-tab {
+    padding: 10px 24px; border: none; background: transparent;
+    color: var(--text-2); font-size: 14px; font-weight: 500;
+    cursor: pointer; transition: all var(--t1); font-family: inherit;
+}
+.dim-tab:hover { background: var(--bg); color: var(--text-1); }
+.dim-tab.active { background: var(--primary); color: var(--text-1); font-weight: 600; }
+.dim-tab + .dim-tab { border-left: 1px solid var(--border); }
+
+/* ── 紧凑型学校类型 Tab（inline） ── */
+.type-tabs-inline { display: inline-flex; gap: 0; border-radius: var(--r-sm); overflow: hidden; border: 1px solid var(--border); margin-left: 2px; }
+.type-tab-sm { padding: 2px 10px; border: none; background: transparent; color: var(--text-3); font-size: 11px; font-weight: 500; cursor: pointer; transition: all var(--t1); font-family: inherit; white-space: nowrap; }
+.type-tab-sm:hover { background: var(--bg); color: var(--text-1); }
+.type-tab-sm.active { background: var(--primary); color: #fff; font-weight: 600; }
+.type-tab-sm + .type-tab-sm { border-left: 1px solid var(--border); }
+
+/* ── 全局筛选栏 ── */
+.global-filter {
+    display: flex; gap: 10px; align-items: flex-end;
+    padding: 16px 24px; background: var(--bg);
+    border-radius: var(--r-lg); margin-bottom: 20px; flex-wrap: wrap;
+    border: 1px solid var(--border);
+}
+.global-filter .fg { display: flex; flex-direction: column; gap: 4px; min-width: 100px; }
+.global-filter .fg label { font-size: 12px; font-weight: 500; color: var(--text-3); }
+.global-filter .fg label .req { color: var(--danger); }
+.global-filter .fg input, .global-filter .fg select {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+    font-size: 13px; color: var(--text-1); background: var(--surface);
+    outline: none; height: 34px; font-family: inherit;
+}
+.global-filter .fg input:focus, .global-filter .fg select:focus {
+    border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft);
+}
+.global-filter .fg select {
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center; padding-right: 26px;
+}
+.type-checks { display: flex; align-items: center; gap: 10px; padding: 0 10px; }
+.type-checks label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; }
+.type-checks input { accent-color: var(--primary); }
+.ss-wrap { position: relative; }
+.ss-input {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--r-sm);
+    font-size: 13px; color: var(--text-1); background: var(--surface);
+    outline: none; height: 34px; width: 100%; cursor: pointer; font-family: inherit;
+}
+.ss-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+.ss-dropdown {
+    display: none; position: absolute; z-index: 100;
+    top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 0 0 var(--r-sm) var(--r-sm); box-shadow: var(--shadow-md); font-size: 12px;
+}
+.ss-dropdown.open { display: block; }
+.ss-option { padding: 7px 10px; cursor: pointer; }
+.ss-option:hover, .ss-option.highlighted { background: var(--primary-soft); }
+.ss-option.selected { background: var(--primary-soft); font-weight: 600; }
+.ss-group-label { padding: 5px 10px 2px; font-size: 10px; font-weight: 700; color: var(--text-3); text-transform: uppercase; border-top: 1px solid var(--border); }
+.ss-group-label:first-child { border-top: none; }
+.ss-no-result { padding: 10px; color: var(--text-3); text-align: center; }
+.ss-hidden { display: none !important; }
+
+/* 数据表格 */
+.cmp-scroll {
+    overflow-x: auto; overflow-y: auto; max-height: 520px;
+}
+.cmp-table {
+    width: 100%; border-collapse: collapse;
+    font-variant-numeric: tabular-nums;
+    min-width: 1800px; table-layout: fixed;
+}
+.cmp-table thead th {
+    padding: 12px 10px; text-align: center;
+    font-weight: 500; font-size: 12px;
+    color: var(--text-1); white-space: nowrap;
+    background: transparent;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 2;
+    overflow: visible;
+}
+.cmp-table thead th.school-col { text-align: left; padding-left: 16px; }
+.cmp-table tbody td {
+    padding: 10px 10px; text-align: center;
+    color: var(--text-2); border-bottom: 1px solid var(--border);
+    font-size: 13px; font-weight: 500; height: 42px;
+}
+.cmp-table tbody td.school-cell {
+    text-align: left; font-weight: 600; color: var(--text-1);
+    padding-left: 16px; white-space: normal; word-break: break-all;
+}
+.cmp-table tbody tr:hover td { background: var(--bg); }
+.col-school { width: 140px; }
+.col-metric { width: 115px; }
+
+/* 折叠按钮 */
+.btn-toggle-l, .btn-toggle-r {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 20px; padding: 0;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text-3); cursor: pointer;
+    font-size: 11px; font-weight: 700; line-height: 1;
+    position: absolute; top: 50%; transform: translateY(-50%);
+}
+.btn-toggle-l { right: 0; border-radius: 4px 0 0 4px; }
+.btn-toggle-r { left: 0; border-radius: 0 4px 4px 0; }
+.btn-toggle-l:hover, .btn-toggle-r:hover { background: var(--bg); }
+
+/* 求和角标 */
+.th-badge {
+    display: inline-block; font-size: 9px; font-weight: 500;
+    color: #fff; background: rgb(99,102,241);
+    padding: 1px 5px; border-radius: 0 0 0 4px;
+    position: absolute; top: 0; right: 0;
+}
+
+/* 使用率色阶 */
+.cell-rate { font-weight: 600; }
+.cell-rate.high { color: var(--success); background: var(--success-bg); }
+.cell-rate.mid { color: var(--warning); background: var(--warning-bg); }
+.cell-rate.low { color: var(--danger); background: var(--danger-bg); }
+.cell-rate.zero, .cell-rate.na { color: var(--text-3); font-weight: 400; }
+
+/* 折叠列 */
+.collapsible-col.hidden { display: none !important; }
+
+/* 汇总区 */
+.cmp-summary {
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+    position: sticky; bottom: 0; z-index: 3;
+}
+.avg-row td { font-weight: 700; background: rgb(243,244,246); font-size: 12px; }
+.max-row td { font-weight: 600; background: rgb(208,245,206); color: var(--primary-dark); font-size: 11px; }
+.min-row td { font-weight: 600; background: rgb(254,226,226); color: var(--danger); font-size: 11px; }
+.tri-up { color: var(--success); margin-right: 2px; }
+.tri-down { color: var(--danger); margin-right: 2px; }
+
+/* 分类头 */
+.section-head {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 16px; font-weight: 600; font-size: 13px;
+    color: var(--text-1); border-bottom: 1px solid var(--border);
+    background: var(--bg);
+}
+.section-head.zhiying { border-left: 3px solid rgb(37,99,235); }
+.section-head.test { border-left: 3px solid var(--warning); }
+.section-head.tuoguan { border-left: 3px solid var(--text-3); }
+.section-count { font-weight: 400; font-size: 12px; color: var(--text-3); }
+.type-tip {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--border); color: var(--text-3);
+    font-size: 10px; cursor: help; margin-left: 6px;
+}
+.school-type-badge {
+    display: inline-flex; padding: 1px 6px; border-radius: 99px;
+    font-size: 10px; font-weight: 600; margin-right: 4px;
+}
+.school-type-badge.zhiying { background: rgb(219,234,254); color: rgb(37,99,235); }
+.school-type-badge.test { background: rgb(254,243,199); color: var(--warning); }
+.school-type-badge.tuoguan { background: rgb(243,244,246); color: var(--text-3); }
+
+.result-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 24px; font-size: 13px; color: var(--text-3);
+    border-bottom: 1px solid var(--border);
+}
+.result-bar .count { font-weight: 600; color: var(--text-1); }
+.result-bar .count .zhiying { color: rgb(37,99,235); }
+.result-bar .count .test { color: var(--warning); }
+.result-bar .count .tuoguan { color: var(--text-3); }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 页面标题 -->
+<h1 class="page-title">全校总览大盘</h1>
+<p class="page-subtitle">教育集团运营数据中心 · 实时监控各校平台使用情况</p>
+
+<!-- ===== 全局筛选栏 ===== -->
+<div class="global-filter" id="globalFilterBar">
+    <div class="fg" style="min-width:160px">
+        <label style="display:flex;align-items:center;gap:8px">
+            学校
+            <span class="type-tabs-inline" id="typeTabs">
+                <button class="type-tab-sm active" data-type="直营校" onclick="switchTypeTab(this)">直营校</button>
+                <button class="type-tab-sm" data-type="测试学校" onclick="switchTypeTab(this)">测试学校</button>
+                <button class="type-tab-sm" data-type="托管校" onclick="switchTypeTab(this)">托管校</button>
+            </span>
+        </label>
+        <div class="ss-wrap" id="ss_school">
+            <input type="text" class="ss-input" placeholder="搜索学校..." autocomplete="off">
+            <div class="ss-dropdown"></div>
+            <select class="ss-hidden" id="f_school"><option value="">全部学校</option></select>
+        </div>
+    </div>
+    <div class="fg">
+        <label>学段</label>
+        <div class="ss-wrap" id="ss_stage">
+            <input type="text" class="ss-input" placeholder="全部学段" autocomplete="off">
+            <div class="ss-dropdown"></div>
+            <select class="ss-hidden" id="f_stage"><option value="">全部</option></select>
+        </div>
+    </div>
+    <div class="fg">
+        <label>年级</label>
+        <div class="ss-wrap" id="ss_grade">
+            <input type="text" class="ss-input" placeholder="全部年级" autocomplete="off">
+            <div class="ss-dropdown"></div>
+            <select class="ss-hidden" id="f_grade"><option value="">全部</option></select>
+        </div>
+    </div>
+    <div class="fg">
+        <label>学科</label>
+        <div class="ss-wrap" id="ss_subject">
+            <input type="text" class="ss-input" placeholder="全部学科" autocomplete="off">
+            <div class="ss-dropdown"></div>
+            <select class="ss-hidden" id="f_subject"><option value="">全部</option></select>
+        </div>
+    </div>
+    <div class="fg">
+        <label>开始日期<span class="req">*</span></label>
+        <input type="date" id="f_start">
+    </div>
+    <div class="fg">
+        <label>结束日期<span class="req">*</span></label>
+        <input type="date" id="f_end">
+    </div>
+    <div class="fg" style="min-width:0">
+        <label>&nbsp;</label>
+        <button class="btn-primary btn-sm" id="btnQuery" onclick="doQuery()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            查询
+        </button>
+    </div>
+    <div class="fg" style="min-width:0">
+        <label>&nbsp;</label>
+        <button class="btn-outline btn-sm" id="btnExport" onclick="doExport()" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            导出
+        </button>
+    </div>
+</div>
+
+<!-- ===== KPI 卡片区 ===== -->
+<div class="kpi-grid" id="kpiGrid">
+    <div class="card kpi-card">
+        <div class="kpi-label">学校总数</div>
+        <div class="kpi-value" id="kpiSchoolCount">--</div>
+        <div class="kpi-sub" id="kpiTeacherSub">总教师人数: --</div>
+    </div>
+    <div class="card kpi-card">
+        <div class="kpi-label">日活跃人数</div>
+        <div class="kpi-value" id="kpiDailyActive">--<span class="kpi-unit">人</span></div>
+        <div class="kpi-compare" id="kpiDailyCompare"></div>
+    </div>
+    <div class="card kpi-card">
+        <div class="kpi-label">周活跃人数</div>
+        <div class="kpi-value" id="kpiWeeklyActive">--<span class="kpi-unit">人</span></div>
+        <div class="kpi-compare" id="kpiWeeklyCompare"></div>
+    </div>
+    <div class="card kpi-card">
+        <div class="kpi-label">月活跃人数</div>
+        <div class="kpi-value" id="kpiMonthlyActive">--<span class="kpi-unit">人</span></div>
+        <div class="kpi-compare" id="kpiMonthlyCompare"></div>
+    </div>
+    <div class="card kpi-card">
+        <div class="kpi-label">总作业提交次数</div>
+        <div class="kpi-value" id="kpiTotalHW">--<span class="kpi-unit">次</span></div>
+        <div class="kpi-compare" id="kpiHWCompare"></div>
+    </div>
+</div>
+
+<!-- ===== 图表区 ===== -->
+<div class="chart-grid" id="chartGrid">
+    <!-- 新增：日活/周活比例双轴图 -->
+    <div class="chart-card full-width" data-gs-no-resize="true">
+        <div class="chart-card-title">学校活跃比例对比</div>
+        <div class="chart-card-subtitle">日活比例（折线）与周活比例（柱状）对比分析</div>
+        <div class="chart-container" style="height:360px"><canvas id="chartActiveRatio"></canvas></div>
+        <div id="activeRatioSummary" style="padding:12px 16px;font-size:13px;color:#64748b;line-height:1.8;border-top:1px solid #e5e7eb"></div>
+    </div>
+    <!-- 第一行：图表1 全宽 -->
+    <div class="chart-card full-width" data-gs-no-resize="true">
+        <div class="chart-card-title">各校使用率排名</div>
+        <div class="chart-card-subtitle">点击可查看单校详情</div>
+        <div class="chart-container" style="height:360px"><canvas id="chartBar"></canvas></div>
+        <div id="barChartSummary" style="padding:12px 16px;font-size:13px;color:#64748b;line-height:1.8;border-top:1px solid #e5e7eb"></div>
+    </div>
+    <!-- 第二行左：图表2 -->
+    <div class="chart-card">
+        <div class="chart-card-title">优先级分层占比</div>
+        <div class="chart-card-subtitle">高/中/低优先级学校分布</div>
+        <div class="chart-container"><canvas id="chartDonut"></canvas></div>
+    </div>
+    <!-- 第二行右：图表4 雷达 -->
+    <div class="chart-card">
+        <div class="chart-card-title">全板块均衡度分析</div>
+        <div class="chart-card-subtitle">6个核心板块综合评估</div>
+        <div class="chart-container"><canvas id="chartRadar"></canvas></div>
+    </div>
+    <!-- 第三行：图表3 趋势 全宽 -->
+    <div class="chart-card full-width">
+        <div class="chart-card-title">日活人数趋势</div>
+        <div class="chart-card-subtitle">筛选时间范围内的总日活人数变化趋势</div>
+        <div class="chart-container"><canvas id="chartLine"></canvas></div>
+    </div>
+    <!-- 新增：作业次数柱状图 -->
+    <div class="chart-card full-width" data-gs-no-resize="true">
+        <div class="chart-card-title">各校作业次数统计</div>
+        <div class="chart-card-subtitle">筛选时间范围内的作业场次排名</div>
+        <div class="chart-container" style="height:360px"><canvas id="chartHomework"></canvas></div>
+        <div id="homeworkSummary" style="padding:12px 16px;font-size:13px;color:#64748b;line-height:1.8;border-top:1px solid #e5e7eb"></div>
+    </div>
+</div>
+
+<!-- ===== 多校对比明细（底部） ===== -->
+<div class="comparison-section">
+    <div class="comparison-section-header">
+        <div class="section-title">全学校明细</div>
+        <div class="section-subtitle" id="cmpSubtitle">共 0 所学校，已选择 0 所</div>
+    </div>
+
+
+
+    <!-- 结果统计 -->
+    <div class="result-bar" id="resultBar" style="display:none">
+        <span>共 <span class="count" id="resultCount">0</span> 所学校</span>
+        <span style="font-size:11px;color:var(--text-4)">各分类区域可独立纵向滚动</span>
+    </div>
+
+    <!-- Loading -->
+    <div class="empty-state" id="loadingOverlay" style="display:none">
+        <div class="loading-spinner" style="margin:0 auto 12px"></div>
+        <span>正在查询数据...</span>
+    </div>
+
+    <!-- 空状态 -->
+    <div class="empty-state" id="emptyState" style="display:none">
+        <p>暂无数据，请调整筛选条件后重新查询</p>
+    </div>
+
+    <!-- 数据表格区 -->
+    <div id="tableArea" style="display:none">
+        <div id="sectionsWrap"></div>
+    </div>
+</div>
+
+<!-- 底部状态栏 -->
+<div class="status-bar" id="statusBar" style="display:none">
+    <span id="footerSourceText">数据来源: --</span>
+    <button class="btn-ghost btn-sm" onclick="syncData()">同步数据</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ═══════════════════════════════════════
+   KPI + 图表（从 comparison API 聚合）
+   ═══════════════════════════════════════ */
+var _cmpData = null;
+var _currentType = '直营校';  // 当前选中的学校类型
+var USER_ID = {{ current_user.id if current_user else 0 }};  // 当前用户ID，用于偏好隔离
+
+/* ── 数据缓存（sessionStorage）── */
+var _trendCache = null;
+function saveIndexCache(cacheObj) {
+    try { cacheObj.timestamp = Date.now(); sessionStorage.setItem('idx_cache_'+USER_ID, JSON.stringify(cacheObj)); } catch(e){}
+}
+function loadIndexCache() {
+    try {
+        var raw = sessionStorage.getItem('idx_cache_'+USER_ID);
+        if (!raw) return null;
+        var c = JSON.parse(raw);
+        if (Date.now() - c.timestamp > 30*60*1000) { sessionStorage.removeItem('idx_cache_'+USER_ID); return null; }
+        return c;
+    } catch(e){ return null; }
+}
+function clearIndexCache() { try { sessionStorage.removeItem('idx_cache_'+USER_ID); } catch(e){} }
+function getFilterValues() {
+    return {
+        start: document.getElementById('f_start').value,
+        end: document.getElementById('f_end').value,
+        type: _currentType,
+        school_id: document.getElementById('f_school').value,
+        school_name: (document.querySelector('#ss_school .ss-input')||{}).value || '',
+        stage: document.getElementById('f_stage').value,
+        grade: document.getElementById('f_grade').value,
+        subject: document.getElementById('f_subject').value
+    };
+}
+function restoreFilterValues(f) {
+    if (!f) return;
+    if (f.start) document.getElementById('f_start').value = f.start;
+    if (f.end) document.getElementById('f_end').value = f.end;
+    if (f.type && ['直营校','测试学校','托管校'].indexOf(f.type)>=0) {
+        _currentType = f.type;
+        document.querySelectorAll('#typeTabs .type-tab-sm').forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-type')===f.type); });
+    }
+    if (f.school_id) {
+        document.getElementById('f_school').value = f.school_id;
+        var inp = document.querySelector('#ss_school .ss-input');
+        if (inp && f.school_name) inp.value = f.school_name;
+    }
+    if (f.stage) { document.getElementById('f_stage').value = f.stage; var s=_ss['ss_stage']; if(s) s.inp.value=f.stage; }
+    if (f.grade) { document.getElementById('f_grade').value = f.grade; var s=_ss['ss_grade']; if(s) s.inp.value=f.grade; }
+    if (f.subject) { document.getElementById('f_subject').value = f.subject; var s=_ss['ss_subject']; if(s) s.inp.value=f.subject; }
+}
+function renderFromCache(cache) {
+    if (!cache || !cache.moduleUsage) return false;
+    restoreFilterValues(cache.filters);
+    if (cache.kpiCur) updateKPIs(cache.kpiCur, cache.kpiTb||null, cache.kpiHb||null);
+    if (cache.chartData) { _trendCache = cache.trendData || null; renderCharts(cache.chartData); }
+    renderTable(cache.moduleUsage);
+    return true;
+}
+
+/* ── 日期工具函数 ── */
+function parseDate(s) { var p=s.split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
+function fmtDate(d) { return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function daysBetween(a,b) { return Math.round((b-a)/(864e5))+1; }
+
+function buildParams(startDate, endDate) {
+    var p = new URLSearchParams();
+    p.set('start_date', startDate);
+    p.set('end_date', endDate);
+    var schoolId = document.getElementById('f_school').value;
+    if (schoolId) p.set('school_id', schoolId);
+    // 单选类型：始终传递当前 Tab 选中的类型
+    if (_currentType) p.set('types', _currentType);
+    var stg = document.getElementById('f_stage').value;
+    if (stg) p.set('stage', stg);
+    var grd = document.getElementById('f_grade').value;
+    if (grd) p.set('grade', grd);
+    var sub = document.getElementById('f_subject').value;
+    if (sub) p.set('subject', sub);
+    return p;
+}
+
+// ── 学校类型 Tab 切换 ──
+function switchTypeTab(btn) {
+    document.querySelectorAll('#typeTabs .type-tab-sm').forEach(function(t){ t.classList.remove('active'); });
+    btn.classList.add('active');
+    _currentType = btn.getAttribute('data-type');
+}
+
+async function fetchModuleUsage(params) {
+    var resp = await fetch('/api/charts/module-usage?' + params.toString());
+    return await resp.json();
+}
+
+function extractKPIs(data) {
+    var rows = data.rows || [], n = rows.length;
+    var totalTeachers=0, dailyUV=0, weeklyActive=0, monthlyUV=0, totalHW=0;
+    rows.forEach(function(r) {
+        // 直接使用后端返回的绝对值字段
+        var tt = r.d21_total_teachers || r.total_teachers || 0;
+        totalTeachers += tt;
+        dailyUV += (r.d21_uv || 0);
+        weeklyActive += (r.d21_weekly_active || 0);
+        monthlyUV += (r.d21_monthly_active || 0);
+        var hw = (r.rate_values || [])[8];
+        if (typeof hw === 'number' && hw > 0) totalHW += hw;
+    });
+    return { n:n, totalTeachers:totalTeachers, dailyUV:dailyUV, weeklyActive:weeklyActive, monthlyUV:monthlyUV, totalHW:totalHW };
+}
+
+function trendTag(pct) {
+    if (pct === null || isNaN(pct)) return '<span class="cmp-flat">--</span>';
+    var s = (pct>=0?'+':'')+pct.toFixed(1)+'%';
+    if (pct>0) return '<span class="cmp-up">'+s+'</span>';
+    if (pct<0) return '<span class="cmp-down">'+s+'</span>';
+    return '<span class="cmp-flat">0.0%</span>';
+}
+
+async function updateDashboard() {
+    var startDate = document.getElementById('f_start').value;
+    var endDate = document.getElementById('f_end').value;
+    var params = buildParams(startDate, endDate);
+
+    var data;
+    try { data = await fetchModuleUsage(params); } catch(e) { console.error(e); return; }
+
+    var cur = extractKPIs(data);
+    var tb = null, hb = null;
+
+    // fallback：查询同比/环比时段的 module-usage（并行执行，更快）
+    var _doFallback = async function() {
+        var sD = parseDate(startDate), eD = parseDate(endDate);
+        var days = daysBetween(sD, eD);
+        var tEnd = new Date(sD.getTime() - 864e5);
+        var tStart = new Date(tEnd.getTime() - (days-1)*864e5);
+        var mStart = new Date(sD.getFullYear(), sD.getMonth()-1, sD.getDate());
+        var mEnd = new Date(eD.getFullYear(), eD.getMonth()-1, eD.getDate());
+        // 并行请求同比和环比
+        var [_tb, _hb] = await Promise.all([
+            fetchModuleUsage(buildParams(fmtDate(tStart), fmtDate(tEnd))).catch(function(){return null;}),
+            fetchModuleUsage(buildParams(fmtDate(mStart), fmtDate(mEnd))).catch(function(){return null;})
+        ]);
+        return { tb: _tb ? extractKPIs(_tb) : null, hb: _hb ? extractKPIs(_hb) : null };
+    };
+
+    // 判断是否为本地/内网服务器（非 Vercel 部署）
+    // - localhost / 127.0.0.1 / ::1 是本机
+    // - 192.168.x.x / 10.x.x.x / 172.16-31.x.x 是内网
+    // - 只有 Vercel 域名（.vercel.app）才走 kpi-summary 避免超时
+    var _h = window.location.hostname;
+    var isLocal = _h === 'localhost' || _h === '127.0.0.1' || _h === '::1'
+        || /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(_h);
+    if (isLocal) {
+        // 本地服务器：直接走 fallback，数据与 module-usage 同源一致
+        var fb = await _doFallback();
+        tb = fb.tb;
+        hb = fb.hb;
+    } else {
+        // Vercel：先试 kpi-summary（避免超时），失败/数据不足再 fallback
+        var useFallback = true;
+        try {
+            var kpiParams = new URLSearchParams();
+            kpiParams.set('start_date', startDate);
+            kpiParams.set('end_date', endDate);
+            var kpiResp = await fetch('/api/charts/kpi-summary?' + kpiParams.toString());
+            var kpiData = await kpiResp.json();
+            if (kpiData.tongbi && kpiData.tongbi.dailyUV !== undefined) {
+                tb = kpiData.tongbi;  // 只含 dailyUV
+                hb = kpiData.huanbi;
+                useFallback = false;
+            }
+        } catch(e) {
+            console.log('kpi-summary failed:', e);
+        }
+        if (useFallback) {
+            var fb2 = await _doFallback();
+            tb = fb2.tb;
+            hb = fb2.hb;
+        }
+    }
+
+    updateKPIs(cur, tb, hb);
+    renderCharts(data);
+    return { cur: cur, tb: tb, hb: hb, chartData: data, moduleUsage: data };
+}
+
+function updateKPIs(cur, tb, hb) {
+    // 学校总数 + 总教师人数
+    document.getElementById('kpiSchoolCount').textContent = cur.n;
+    document.getElementById('kpiTeacherSub').textContent = '总教师人数: ' + Math.round(cur.totalTeachers) + ' 人';
+
+    // 日活跃人数
+    document.getElementById('kpiDailyActive').innerHTML = cur.dailyUV + '<span class="kpi-unit">人</span>';
+    var tbD = tb && tb.dailyUV ? ((cur.dailyUV - tb.dailyUV) / tb.dailyUV * 100) : null;
+    var hbD = hb && hb.dailyUV ? ((cur.dailyUV - hb.dailyUV) / hb.dailyUV * 100) : null;
+    document.getElementById('kpiDailyCompare').innerHTML = '同比'+trendTag(tbD)+' 环比'+trendTag(hbD);
+
+    // 周活跃人数
+    document.getElementById('kpiWeeklyActive').innerHTML = cur.weeklyActive + '<span class="kpi-unit">人</span>';
+    var tbW = tb && tb.weeklyActive ? ((cur.weeklyActive - tb.weeklyActive) / tb.weeklyActive * 100) : null;
+    var hbW = hb && hb.weeklyActive ? ((cur.weeklyActive - hb.weeklyActive) / hb.weeklyActive * 100) : null;
+    document.getElementById('kpiWeeklyCompare').innerHTML = '同比'+trendTag(tbW)+' 环比'+trendTag(hbW);
+
+    // 月活跃人数
+    document.getElementById('kpiMonthlyActive').innerHTML = cur.monthlyUV + '<span class="kpi-unit">人</span>';
+    var tbM = tb && tb.monthlyUV ? ((cur.monthlyUV - tb.monthlyUV) / tb.monthlyUV * 100) : null;
+    var hbM = hb && hb.monthlyUV ? ((cur.monthlyUV - hb.monthlyUV) / hb.monthlyUV * 100) : null;
+    document.getElementById('kpiMonthlyCompare').innerHTML = '同比'+trendTag(tbM)+' 环比'+trendTag(hbM);
+
+    // 总作业提交次数
+    document.getElementById('kpiTotalHW').innerHTML = cur.totalHW + '<span class="kpi-unit">次</span>';
+    var tbH = tb && tb.totalHW ? ((cur.totalHW - tb.totalHW) / tb.totalHW * 100) : null;
+    var hbH = hb && hb.totalHW ? ((cur.totalHW - hb.totalHW) / hb.totalHW * 100) : null;
+    document.getElementById('kpiHWCompare').innerHTML = '同比'+trendTag(tbH)+' 环比'+trendTag(hbH);
+}
+
+var _lineChart = null;  // 全局持久化，避免重复调用时旧图表未销毁
+var _barChart = null, _donutChart = null, _radarChart = null;
+var _activeRatioChart = null, _homeworkChart = null;
+
+function renderCharts(data) {
+    var rows = data.rows || [];
+    
+    // ========== 新增：日活/周活比例双轴图 ==========
+    if (_activeRatioChart) _activeRatioChart.destroy();
+    var arLabels = [], arDailyData = [], arWeeklyData = [], arSchoolData = [];
+    // 按日活比例排序
+    var arSorted = rows.slice().sort(function(a,b){ return (b.rate_values||[])[10] - (a.rate_values||[])[10]; });
+    arSorted.forEach(function(r) {
+        var name = r.display_name || r.school;
+        arLabels.push(name);
+        arDailyData.push((r.rate_values || [])[10] || 0);
+        arWeeklyData.push((r.rate_values || [])[11] || 0);
+        arSchoolData.push({name: name, daily: (r.rate_values || [])[10] || 0, weekly: (r.rate_values || [])[11] || 0});
+    });
+    _activeRatioChart = new Chart(document.getElementById('chartActiveRatio'), {
+        type: 'bar',
+        data: {
+            labels: arLabels,
+            datasets: [
+                {
+                    type: 'line',
+                    label: '日活比例',
+                    data: arDailyData,
+                    borderColor: 'rgb(99,102,241)',
+                    backgroundColor: 'rgba(99,102,241,0.1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    yAxisID: 'y',
+                    order: 1
+                },
+                {
+                    type: 'bar',
+                    label: '周活比例',
+                    data: arWeeklyData,
+                    backgroundColor: 'rgba(173,232,130,0.7)',
+                    borderColor: 'rgb(173,232,130)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                    yAxisID: 'y1',
+                    order: 2
+                }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { position: 'top', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } },
+                tooltip: { callbacks: { label: function(ctx){ return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%'; } } }
+            },
+            scales: {
+                y: { type: 'linear', position: 'left', beginAtZero: true, title: { display: true, text: '日活比例(%)' }, ticks: { callback: function(v){return v+'%';} }, grid: { color: 'rgb(243,244,246)' } },
+                y1: { type: 'linear', position: 'right', beginAtZero: true, title: { display: true, text: '周活比例(%)' }, ticks: { callback: function(v){return v+'%';} }, grid: { display: false } },
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 60, minRotation: 30, autoSkip: false } }
+            }
+        }
+    });
+    // 生成活跃比例摘要文字
+    if (arSchoolData.length > 0) {
+        var dailySorted = arSchoolData.slice().sort(function(a,b){ return b.daily - a.daily; });
+        var weeklySorted = arSchoolData.slice().sort(function(a,b){ return b.weekly - a.weekly; });
+        var top5Daily = dailySorted.slice(0, 5).map(function(s){ return s.name; }).join('、');
+        var bottom3Daily = dailySorted.slice(-3).reverse().map(function(s){ return s.name; }).join('、');
+        var top5Weekly = weeklySorted.slice(0, 5).map(function(s){ return s.name; }).join('、');
+        var bottom3Weekly = weeklySorted.slice(-3).reverse().map(function(s){ return s.name; }).join('、');
+        document.getElementById('activeRatioSummary').innerHTML = 
+            '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+            '<span>日活比例较高学校：<b style="color:#6366f1">' + top5Daily + '</b></span>' +
+            '<span>日活比例较差学校：<b style="color:#f59e0b">' + bottom3Daily + '</b></span>' +
+            '</div>' +
+            '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:4px">' +
+            '<span>周活比例较高学校：<b style="color:#86efac">' + top5Weekly + '</b></span>' +
+            '<span>周活比例较差学校：<b style="color:#fbbf24">' + bottom3Weekly + '</b></span>' +
+            '</div>';
+    }
+    
+    // 柱状图 - 各校使用率排名（先销毁旧实例）
+    if (_barChart) _barChart.destroy();
+    var barLabels = [], barData = [], barColors = [], barSchoolIds = [];
+    var sorted = rows.slice().sort(function(a,b){ return (b.rate_values||[])[0] - (a.rate_values||[])[0]; });
+    sorted.forEach(function(r) {
+        barLabels.push(r.display_name || r.school);
+        barSchoolIds.push(r.school_id || '');
+        var v = (r.rate_values || [])[0] || 0;
+        barData.push(v);
+        barColors.push(v >= 50 ? 'rgb(173,232,130)' : v >= 20 ? 'rgb(251,191,36)' : 'rgb(248,113,113)');
+    });
+    _barChart = new Chart(document.getElementById('chartBar'), {
+        type: 'bar',
+        data: { labels: barLabels, datasets: [{ data: barData, backgroundColor: barColors, borderRadius: 4 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false },
+                tooltip: { callbacks: { label: function(ctx){ return ctx.parsed.y + '%'; } } } },
+            scales: { y: { beginAtZero: true, ticks: { callback: function(v){return v+'%';} }, grid: { color: 'rgb(243,244,246)' } },
+                x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 60, minRotation: 30, autoSkip: false } } },
+            onClick: function(e, elements) {
+                if (elements.length > 0) {
+                    var idx = elements[0].index;
+                    var schoolId = barSchoolIds[idx];
+                    if (schoolId) {
+                        window.location.href = '/school/' + encodeURIComponent(schoolId);
+                    }
+                }
+            }
+        }
+    });
+    // 生成使用率摘要文字（前5名/后3名）
+    if (sorted.length > 0) {
+        var top5 = sorted.slice(0, Math.min(5, sorted.length)).map(function(r){ return r.display_name || r.school; }).join(' ');
+        var bottom3 = sorted.slice(-Math.min(3, sorted.length)).reverse().map(function(r){ return r.display_name || r.school; }).join(' ');
+        document.getElementById('barChartSummary').innerHTML = 
+            '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+            '<span>使用率较高学校：<b style="color:#10b981">' + top5 + '</b></span>' +
+            '<span>使用率较差学校：<b style="color:#f59e0b">' + bottom3 + '</b></span>' +
+            '</div>';
+    }
+
+    // 环形图 - 优先级分层（使用真实 priority 字段）
+    if (_donutChart) _donutChart.destroy();
+    var high = 0, mid = 0, low = 0;
+    rows.forEach(function(r) {
+        var p = r.priority || '中';
+        if (p === '高') high++;
+        else if (p === '低') low++;
+        else mid++;
+    });
+    _donutChart = new Chart(document.getElementById('chartDonut'), {
+        type: 'doughnut',
+        data: { labels: ['高优先级', '中优先级', '低优先级'], datasets: [{ data: [high,mid,low], backgroundColor: ['rgb(248,113,113)','rgb(251,191,36)','rgb(209,213,219)'], borderWidth: 0 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyle: 'circle' } } }, cutout: '65%' }
+    });
+
+    // 折线图/柱状图 - 全校周期趋势（优先用缓存）
+    var _trendPromise;
+    if (_trendCache) {
+        _trendPromise = Promise.resolve(_trendCache);
+    } else {
+        _trendPromise = fetch('/api/charts/trend?' + buildParams(
+            document.getElementById('f_start').value,
+            document.getElementById('f_end').value
+        ).toString()).then(function(r){return r.json();}).then(function(t){_trendCache=t;return t;});
+    }
+    _trendPromise
+    .then(function(trend) {
+        if (_lineChart) _lineChart.destroy();
+        var isLine = trend.chart_type === 'line';
+        _lineChart = new Chart(document.getElementById('chartLine'), {
+            type: isLine ? 'line' : 'bar',
+            data: { labels: trend.labels, datasets: trend.datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: { duration: 800, easing: 'easeInOutQuart' },
+                plugins: {
+                    legend: { position: 'bottom', labels: { padding: 12, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } },
+                    tooltip: { callbacks: { label: function(ctx){ return ctx.dataset.label + ': ' + ctx.parsed.y + '人'; } } }
+                },
+                scales: {
+                    y: { beginAtZero: true, ticks: { callback: function(v){return v+'人';} }, grid: { color: 'rgb(243,244,246)' } },
+                    x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45, autoSkip: true, maxTicksLimit: 15 } }
+                }
+            }
+        });
+    })
+    .catch(function(e){ console.error('趋势图表加载失败:', e); });
+
+    // 雷达图 - 全板块均衡度
+    if (_radarChart) _radarChart.destroy();
+    var dims = ['平台总体使用率','内部员工使用率','个备访问使用率','集备访问使用率','组卷访问使用率','手阅作业使用率'];
+    var radarIndices = [0, 1, 2, 3, 4, 5];
+    var dimVals = [0,0,0,0,0,0];
+    if (rows.length > 0) {
+        rows.forEach(function(r) {
+            var rv = r.rate_values || [];
+            for (var i=0; i<6; i++) dimVals[i] += (rv[radarIndices[i]]||0);
+        });
+        dimVals = dimVals.map(function(v){ return Math.round(v / rows.length * 10) / 10; });
+    }
+    _radarChart = new Chart(document.getElementById('chartRadar'), {
+        type: 'radar',
+        data: { labels: dims, datasets: [{ label: '全校均值', data: dimVals, backgroundColor: 'rgba(173,232,130,0.2)', borderColor: 'rgb(173,232,130)', pointBackgroundColor: 'rgb(173,232,130)', borderWidth: 2 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+            scales: { r: { beginAtZero: true, ticks: { display: false }, grid: { color: 'rgb(229,231,235)' }, pointLabels: { font: { size: 11 } } } } }
+    });
+
+    // ========== 新增：作业次数柱状图 ==========
+    if (_homeworkChart) _homeworkChart.destroy();
+    var hwLabels = [], hwData = [], hwPerCapita = [], hwSchoolData = [];
+    // 按作业次数排序（从高到低）
+    var hwSorted = rows.slice().sort(function(a,b){ return (b.rate_values||[])[8] - (a.rate_values||[])[8]; });
+    hwSorted.forEach(function(r) {
+        var name = r.display_name || r.school;
+        var hwCount = (r.rate_values || [])[8] || 0;
+        var hwPerCap = (r.rate_values || [])[9] || 0;
+        hwLabels.push(name);
+        hwData.push(hwCount);
+        hwPerCapita.push(hwPerCap);
+        hwSchoolData.push({name: name, count: hwCount, perCapita: hwPerCap});
+    });
+    // 过滤掉作业次数为 0 的学校
+    var hwFiltered = hwSchoolData.filter(function(s){ return s.count > 0; });
+    if (hwFiltered.length > 0) {
+        _homeworkChart = new Chart(document.getElementById('chartHomework'), {
+            type: 'bar',
+            data: {
+                labels: hwFiltered.map(function(s){ return s.name; }),
+                datasets: [{
+                    label: '作业次数',
+                    data: hwFiltered.map(function(s){ return s.count; }),
+                    backgroundColor: hwFiltered.map(function(s){
+                        // 根据次数生成渐变色
+                        var maxCount = Math.max.apply(null, hwFiltered.map(function(x){ return x.count; }));
+                        var ratio = s.count / (maxCount || 1);
+                        return 'rgba(251,191,36,' + (0.5 + ratio * 0.4) + ')';
+                    }),
+                    borderColor: 'rgb(251,191,36)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { 
+                        label: function(ctx){ 
+                            var idx = ctx.dataIndex;
+                            var perCap = hwFiltered[idx].perCapita;
+                            return '作业次数: ' + ctx.parsed.y + '次 (人均: ' + perCap.toFixed(1) + '次)'; 
+                        } 
+                    } }
+                },
+                scales: {
+                    y: { beginAtZero: true, title: { display: true, text: '作业次数' }, ticks: { callback: function(v){return v+'次';} }, grid: { color: 'rgb(243,244,246)' } },
+                    x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 60, minRotation: 30, autoSkip: false } }
+                }
+            }
+        });
+        // 生成作业次数摘要文字（前5名 + 人均次数）
+        var top5Hw = hwFiltered.slice(0, 5).map(function(s){ 
+            return s.name + '(' + s.count + '次/人均' + s.perCapita.toFixed(1) + ')'; 
+        }).join('、');
+        document.getElementById('homeworkSummary').innerHTML = 
+            '<span>使用较好的学校：<b style="color:#d97706">' + top5Hw + '</b></span>';
+    } else {
+        document.getElementById('homeworkSummary').innerHTML = '<span style="color:#94a3b8">暂无作业次数数据</span>';
+    }
+}
+
+/* ═══════════════════════════════════════
+   全局查询（控制 KPI + 图表 + 底部表格）
+   ═══════════════════════════════════════ */
+var OPTIONS = { schools: [], schools_by_type: {}, stages: [], grades: [], subjects: [] };
+var STAGE_GRADE_MAP = { "高中": ["高一","高二","高三"], "初中": ["七年级","八年级","九年级"], "小学": ["一年级","二年级","三年级","四年级","五年级","六年级"] };
+
+function onStageChange() {
+    var stage = document.getElementById("f_stage").value;
+    var grades = stage && STAGE_GRADE_MAP[stage] ? STAGE_GRADE_MAP[stage] : OPTIONS.grades;
+    updateSearchableOptions("ss_grade", grades.map(function(g){return{text:g,value:g};}));
+}
+
+async function doQuery() {
+    var btn = document.getElementById("btnQuery");
+    btn.disabled = true; btn.textContent = '查询中...';
+    document.getElementById("loadingOverlay").style.display = "block";
+    document.getElementById("tableArea").style.display = "none";
+    document.getElementById("emptyState").style.display = "none";
+    document.getElementById("resultBar").style.display = "none";
+    document.getElementById("statusBar").style.display = "none";
+    document.getElementById("btnExport").disabled = true;
+
+    var startDate = document.getElementById("f_start").value;
+    var endDate = document.getElementById("f_end").value;
+    var params = buildParams(startDate, endDate);
+
+    try {
+        // KPI + 图表 + 表格数据（一次调用，复用结果）
+        var dashResult = await updateDashboard();
+        var resp = dashResult.moduleUsage;  // 复用已获取的数据，不再重复请求
+        if (resp.error) { alert("查询失败: " + resp.error); return; }
+        renderTable(resp);
+        // 保存到缓存
+        saveIndexCache({
+            moduleUsage: resp,
+            kpiCur: dashResult.cur, kpiTb: dashResult.tb, kpiHb: dashResult.hb,
+            chartData: dashResult.chartData, trendData: _trendCache,
+            filters: getFilterValues()
+        });
+    } catch(e) { alert("请求失败: " + e.message); }
+    finally {
+        document.getElementById("loadingOverlay").style.display = "none";
+        btn.disabled = false;
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> 查询';
+        savePreferences();
+    }
+}
+
+function renderTable(data) {
+    var rows = data.rows || [], columns = data.columns || [];
+    if (rows.length === 0) {
+        document.getElementById("emptyState").style.display = "block";
+        document.getElementById("tableArea").style.display = "none";
+        document.getElementById("resultBar").style.display = "none";
+        document.getElementById("statusBar").style.display = "none";
+        return;
+    }
+    document.getElementById("emptyState").style.display = "none";
+    document.getElementById("tableArea").style.display = "block";
+    document.getElementById("resultBar").style.display = "flex";
+    document.getElementById("cmpSubtitle").textContent = '共 ' + rows.length + ' 所学校，已选择 0 所';
+
+    var zhiyingRows = [], testRows = [], tuoguanRows = [], otherRows = [];
+    rows.forEach(function(r) {
+        if (r.type === "直营校") zhiyingRows.push(r);
+        else if (r.type === "测试学校") testRows.push(r);
+        else if (r.type === "托管校") tuoguanRows.push(r);
+        else otherRows.push(r);
+    });
+
+    var parts = [];
+    if (zhiyingRows.length) parts.push('<span class="zhiying">' + zhiyingRows.length + ' 直营校</span>');
+    if (testRows.length) parts.push('<span class="test">' + testRows.length + ' 测试学校</span>');
+    if (tuoguanRows.length) parts.push('<span class="tuoguan">' + tuoguanRows.length + ' 托管校</span>');
+    document.getElementById("resultCount").innerHTML = parts.join(' + ');
+
+    var sourceHint;
+    if (data.source === 'metabase-api') {
+        sourceHint = '数据来源: Metabase API 实时数据';
+    } else if (data.source === 'sls') {
+        sourceHint = '数据来源: SLS 实时数据';
+    } else {
+        sourceHint = '数据来源: 本地数据库';
+    }
+    document.getElementById("footerSourceText").textContent = rows.length + "所学校 · " + columns.length + "个指标横向对比 · " + sourceHint;
+    document.getElementById("statusBar").style.display = "flex";
+    document.getElementById("btnExport").disabled = false;
+
+    _extraColsVisible = false;
+    var tipHtml = '<span class="type-tip" title="使用率色阶：绿色>=50%，橙色20-49%，红色<20%">&#9432;</span>';
+    var html = '';
+    // Tab 模式：只显示当前选中的类型
+    if (zhiyingRows.length > 0 && _currentType === '直营校') html += buildSectionBlock("zhiying","直营校",zhiyingRows,columns,tipHtml);
+    if (testRows.length > 0 && _currentType === '测试学校') html += buildSectionBlock("test","测试学校",testRows,columns,"");
+    if (tuoguanRows.length > 0 && _currentType === '托管校') html += buildSectionBlock("tuoguan","托管校",tuoguanRows,columns,"");
+    if (otherRows.length > 0) html += buildSectionBlock("","其他",otherRows,columns,"");
+    document.getElementById("sectionsWrap").innerHTML = html;
+}
+
+function buildSectionBlock(typeClass, typeName, rows, columns, tip) {
+    var colgroup = buildColGroup(columns);
+    var html = '<div class="section-head ' + typeClass + '">&#x25CF; ' + typeName + '<span class="section-count">' + rows.length + ' 所</span>' + tip + '</div>';
+    html += '<div class="cmp-scroll">';
+    html += '<table class="cmp-table"><colgroup>' + colgroup + '</colgroup>';
+    html += '<thead><tr><th class="school-col">学校名称</th>';
+    columns.forEach(function(col, idx) {
+        var extraClass = (idx===6||idx===7) ? ' collapsible-col hidden' : '';
+        var displayName = escapeHtml(col).replace(/\n/g, '<br>');
+        var extraBtn = (idx===5) ? '<button class="btn-toggle-l" onclick="toggleExtraCols(this)" title="展开详情列">&lt;</button>' : '';
+        extraBtn += (idx===8) ? '<button class="btn-toggle-r" onclick="toggleExtraCols(this)" title="展开详情列">&gt;</button>' : '';
+        var badge = (idx===8) ? '<span class="th-badge">求和</span>' : '';
+        html += '<th class="' + extraClass + '">' + badge + displayName + extraBtn + '</th>';
+    });
+    html += '</tr></thead><tbody>' + buildDataRows(rows, columns) + '</tbody></table>';
+    // 汇总（放在滚动容器内，与主表共享横向滚动）
+    html += '<div class="cmp-summary" style="position:sticky;bottom:0;z-index:3"><table class="cmp-table" style="min-width:1800px"><colgroup>' + colgroup + '</colgroup><tbody>';
+    html += buildAverageRow(rows, columns) + buildMinMaxRow(rows, columns, "max") + buildMinMaxRow(rows, columns, "min");
+    html += '</tbody></table></div>';
+    html += '</div>'; // 关闭 cmp-scroll
+    return html;
+}
+
+function buildColGroup(columns) {
+    var html = '<col class="col-school">';
+    columns.forEach(function(){ html += '<col class="col-metric">'; });
+    return html;
+}
+
+function buildDataRows(rows, columns) {
+    var html = '';
+    rows.forEach(function(row) {
+        var rateValues = row.rate_values || [], values = row.values || [];
+        var typeClass = row.type==="直营校"?"zhiying":(row.type==="测试学校"?"test":(row.type==="托管校"?"tuoguan":""));
+        html += '<tr>';
+        html += '<td class="school-cell"><span class="school-type-badge ' + typeClass + '">' + escapeHtml(row.type||"其他") + '</span>' + escapeHtml(row.display_name||row.school) + '</td>';
+        for (var i=0; i<columns.length; i++) {
+            var val = values[i];
+            if (i===8 && (val===null||val===undefined||val==='-'||val==='')) val = '0';
+            if (val===null||val===undefined||val==='') val = '-';
+            var cls = getRateClass(rateValues[i]);
+            var colCls = (i===6||i===7) ? ' collapsible-col hidden' : '';
+            html += '<td class="cell-rate ' + cls + colCls + '">' + escapeHtml(String(val)) + '</td>';
+        }
+        html += '</tr>';
+    });
+    return html;
+}
+
+function buildAverageRow(rows, columns) {
+    var n = rows.length; if (n===0) return '';
+    var sums = new Array(columns.length).fill(0), counts = new Array(columns.length).fill(0);
+    rows.forEach(function(row) {
+        var rv = row.rate_values || [];
+        for (var i=0; i<columns.length; i++) { if(i===8||i===9) continue; var v=rv[i]; if(typeof v==='number'&&!isNaN(v)&&v>0){sums[i]+=v;counts[i]++;} }
+    });
+    var hwSum = 0;
+    rows.forEach(function(row) { var v=row.values||[]; var s=String(v[8]||"0").replace('%','').replace('-','').trim(); var n=parseFloat(s); if(!isNaN(n)&&n>0) hwSum+=n; });
+    var html = '<tr class="avg-row"><td class="school-cell">平均使用率</td>';
+    for (var i=0; i<columns.length; i++) {
+        var ec = (i===6||i===7) ? ' collapsible-col hidden' : '';
+        var d, c;
+        if (i===8) { d = hwSum>0?hwSum:'0'; c='na'; }
+        else if (i===9) { d='-'; c='na'; }
+        else { var avg=counts[i]>0?Math.round(sums[i]/counts[i]*10)/10:null; c=getRateClass(avg); d=avg!==null?avg+'%':'-'; }
+        html += '<td class="cell-rate '+c+ec+'">'+d+'</td>';
+    }
+    return html+'</tr>';
+}
+
+function buildMinMaxRow(rows, columns, mode) {
+    var n=rows.length; if(n===0) return '';
+    var rc = mode==="max"?"max-row":"min-row";
+    var tri = mode==="max"?'<span class="tri-up">▲</span> 最高':'<span class="tri-down">▼</span> 最低';
+    var cmp = mode==="max"?function(a,b){return a>b;}:function(a,b){return a<b;};
+    var best = mode==="max"?-Infinity:Infinity;
+    var html = '<tr class="'+rc+'"><td class="school-cell">'+tri+'</td>';
+    for (var i=0; i<columns.length; i++) {
+        var ec=(i===6||i===7)?' collapsible-col hidden':'';
+        if(i===9){html+='<td class="cell-rate na'+ec+'">-</td>';continue;}
+        var bIdx=-1,bVal=mode==="max"?-Infinity:Infinity;
+        for(var r=0;r<n;r++){var rv=rows[r].rate_values||[];var v=rv[i];if(typeof v==='number'&&!isNaN(v)&&v>0&&cmp(v,bVal)){bVal=v;bIdx=r;}}
+        if(bIdx>=0){var sn=rows[bIdx].display_name||rows[bIdx].school||'';var c=getRateClass(bVal);
+            if(i===8){var hv=rows[bIdx].values?rows[bIdx].values[8]:null;if(hv===null||hv===undefined||hv==='-'||hv==='')hv='0';html+='<td class="cell-rate '+c+ec+'">'+escapeHtml(sn)+' '+escapeHtml(String(hv))+'</td>';}
+            else{html+='<td class="cell-rate '+c+ec+'">'+escapeHtml(sn)+' '+bVal+'%</td>';}
+        }else{html+='<td class="cell-rate na'+ec+'">-</td>';}
+    }
+    return html+'</tr>';
+}
+
+var _extraColsVisible = false;
+function toggleExtraCols(btn) {
+    _extraColsVisible = !_extraColsVisible;
+    document.querySelectorAll('.collapsible-col').forEach(function(el){ el.classList.toggle('hidden',!_extraColsVisible); });
+    document.querySelectorAll('.btn-toggle-l,.btn-toggle-r').forEach(function(b){ b.style.background=_extraColsVisible?'var(--bg)':'var(--surface)'; });
+    document.querySelectorAll('.btn-toggle-l').forEach(function(b){ b.innerHTML=_extraColsVisible?'&gt;':'&lt;'; });
+    document.querySelectorAll('.btn-toggle-r').forEach(function(b){ b.innerHTML=_extraColsVisible?'&lt;':'&gt;'; });
+}
+
+function doExport() {
+    var headerCells = document.querySelectorAll('.cmp-table thead th');
+    var header = []; headerCells.forEach(function(th){ header.push(th.textContent.replace(/\s+/g,'').trim()); });
+    var rows = [header];
+    document.querySelectorAll('.cmp-table tbody tr').forEach(function(tr) {
+        var cells = tr.querySelectorAll('td'), row = [];
+        cells.forEach(function(td,idx){
+            if(idx===0){var b=td.querySelector('.school-type-badge');var t=td.textContent||'';if(b)t=t.replace(b.textContent,'').trim();row.push('"'+t.replace(/"/g,'""')+'"');}
+            else{row.push(td.textContent.trim());}
+        });
+        rows.push(row);
+    });
+    var csv = rows.map(function(r){return r.join(',');}).join('\n');
+    var blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+    var url = URL.createObjectURL(blob); var a=document.createElement('a');
+    a.href=url; a.download='多校对比_'+new Date().toISOString().slice(0,10)+'.csv'; a.click();
+    URL.revokeObjectURL(url);
+}
+
+function getRateClass(val) {
+    if(val===null||val===undefined||val==="-"||val==="") return "na";
+    var num=(typeof val==="number")?val:parseFloat(val);
+    if(isNaN(num)) return "na"; if(num===0) return "zero";
+    if(num>=50) return "high"; if(num>=20) return "mid"; return "low";
+}
+function escapeHtml(s){if(!s)return"";return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function escapeAttr(s){return String(s||'').replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+/* ── 可搜索下拉框 ── */
+var _ss = {};
+function initSS(id, data) {
+    var c = document.getElementById(id); if(!c) return;
+    var inp = c.querySelector('.ss-input'), dd = c.querySelector('.ss-dropdown'), sel = c.querySelector('.ss-hidden');
+    _ss[id] = {inp:inp,dd:dd,sel:sel,data:data||[],open:false,hi:-1};
+    inp.addEventListener('focus', function(){openSS(id);});
+    inp.addEventListener('click', function(){openSS(id);});
+    inp.addEventListener('input', function(){
+        openSS(id);
+        // 输入框清空时，同步清空隐藏 select 值
+        if (!inp.value.trim()) { sel.value = ''; }
+    });
+    // 失焦时同步：输入框为空→清空select
+    inp.addEventListener('blur', function() {
+        if (!inp.value.trim()) { sel.value = ''; }
+    });
+    inp.addEventListener('keydown', function(e){
+        var s=_ss[id]; if(!s||!s.open) return;
+        var opts=s.dd.querySelectorAll('.ss-option'), cnt=opts.length;
+        if(e.key==='ArrowDown'){e.preventDefault();s.hi=Math.min(s.hi+1,cnt-1);updateHi(id);}
+        else if(e.key==='ArrowUp'){e.preventDefault();s.hi=Math.max(s.hi-1,0);updateHi(id);}
+        else if(e.key==='Enter'){e.preventDefault();e.stopImmediatePropagation();if(cnt>0&&s.hi>=0)selOpt(id,opts[s.hi]);else if(cnt>0)selOpt(id,opts[0]);else closeSS(id);}
+        else if(e.key==='Escape'){closeSS(id);inp.blur();}
+    });
+    document.addEventListener('click',function(e){if(!c.contains(e.target))closeSS(id);});
+    renderSS(id, data||[]);
+}
+function updateHi(id){var s=_ss[id];s.dd.querySelectorAll('.ss-option').forEach(function(el,i){el.classList.toggle('highlighted',i===s.hi);});}
+function openSS(id){var s=_ss[id];s.open=true;s.dd.classList.add('open');filterSS(id);}
+function closeSS(id){var s=_ss[id];s.open=false;s.dd.classList.remove('open');}
+function filterSS(id){var s=_ss[id];var q=(s.inp.value||'').toLowerCase().trim();renderSS(id,s.data.filter(function(it){return!q||it.text.toLowerCase().indexOf(q)>=0;}));}
+function renderSS(id,items){
+    var s=_ss[id],html='';
+    if(!items.length){html='<div class="ss-no-result">无匹配结果</div>';}
+    else{var lg=null;items.forEach(function(it){if(it.group&&it.group!==lg){html+='<div class="ss-group-label">'+escapeHtml(it.group)+'</div>';lg=it.group;}
+    var sel=s.sel.value===it.value?' selected':'';html+='<div class="ss-option'+sel+'" data-value="'+escapeAttr(it.value)+'" data-ss="'+id+'">'+escapeHtml(it.text)+'</div>';});}
+    s.dd.innerHTML=html; s.hi=items.length>0?0:-1; updateHi(id);
+    s.dd.querySelectorAll('.ss-option').forEach(function(el){el.addEventListener('mousedown',function(e){e.preventDefault();selOpt(id,el);});});
+}
+function selOpt(id,el){var s=_ss[id];var v=el.getAttribute('data-value');s.sel.value=v;s.inp.value=v?el.textContent:'';closeSS(id);s.sel.dispatchEvent(new Event('change',{bubbles:true}));}
+function updateSearchableOptions(id,data){var s=_ss[id];if(!s)return;s.data=data||[];var cv=s.sel.value;if(cv&&!data.some(function(d){return d.value===cv;})){s.sel.value='';s.inp.value='';}renderSS(id,data);}
+
+/* ── 筛选偏好记忆 (localStorage) ── */
+function savePreferences() {
+    var prefs = {
+        school_id: document.getElementById('f_school').value,
+        school_name: document.querySelector('#ss_school .ss-input') ? document.querySelector('#ss_school .ss-input').value : '',
+        stage: document.getElementById('f_stage').value,
+        grade: document.getElementById('f_grade').value,
+        subject: document.getElementById('f_subject').value,
+        start: document.getElementById('f_start').value,
+        end: document.getElementById('f_end').value,
+        type: _currentType
+    };
+    try { localStorage.setItem('index_prefs_' + USER_ID, JSON.stringify(prefs)); } catch(e){}
+}
+function restorePreferences() {
+    var raw; try { raw = localStorage.getItem('index_prefs_' + USER_ID); } catch(e){ return; }
+    if (!raw) return;
+    var p; try { p = JSON.parse(raw); } catch(e){ return; }
+    if (p.end) document.getElementById('f_end').value = p.end;
+    if (p.start) document.getElementById('f_start').value = p.start;
+    if (p.type && ['直营校','测试学校','托管校'].indexOf(p.type) >= 0) {
+        _currentType = p.type;
+        document.querySelectorAll('#typeTabs .type-tab-sm').forEach(function(t){
+            t.classList.toggle('active', t.getAttribute('data-type') === p.type);
+        });
+    }
+    if (p.school_id) {
+        document.getElementById('f_school').value = p.school_id;
+        var inp = document.querySelector('#ss_school .ss-input');
+        if (inp && p.school_name) inp.value = p.school_name;
+    }
+    if (p.stage) {
+        document.getElementById('f_stage').value = p.stage;
+        var ssStg = _ss['ss_stage']; if (ssStg) ssStg.inp.value = p.stage;
+    }
+    if (p.grade) {
+        document.getElementById('f_grade').value = p.grade;
+        var ssGrd = _ss['ss_grade']; if (ssGrd) ssGrd.inp.value = p.grade;
+    }
+    if (p.subject) {
+        document.getElementById('f_subject').value = p.subject;
+        var ssSub = _ss['ss_subject']; if (ssSub) ssSub.inp.value = p.subject;
+    }
+}
+
+/* ── 初始化 ── */
+async function initPage() {
+    try { var resp = await fetch("/api/charts/options"); OPTIONS = await resp.json(); } catch(e){ console.error(e); return; }
+
+    var types = ["直营校","测试学校","托管校"];
+    var schoolData = [{text:"全部学校",value:"",group:""}];
+    var schoolSel = document.getElementById("f_school");
+    schoolSel.innerHTML = '<option value="">全部学校</option>';
+    types.forEach(function(t){
+        var list = (OPTIONS.schools_by_type||{})[t]||[];
+        if(!list.length) return;
+        var og = document.createElement("optgroup"); og.label = t+" ("+list.length+"所)";
+        var gl = t+" ("+list.length+"所)";
+        list.forEach(function(s){var o=document.createElement("option");o.value=s.id;o.textContent=s.display_name||s.name;og.appendChild(o);schoolData.push({text:s.display_name||s.name,value:s.id,group:gl});});
+        schoolSel.appendChild(og);
+    });
+    initSS("ss_school", schoolData);
+
+    var stageSel = document.getElementById("f_stage");
+    (OPTIONS.stages||[]).forEach(function(s){var o=document.createElement("option");o.value=s;o.textContent=s;stageSel.appendChild(o);});
+    initSS("ss_stage", [{text:"全部",value:""}].concat((OPTIONS.stages||[]).map(function(s){return{text:s,value:s};})));
+
+    var gradeSel = document.getElementById("f_grade");
+    (OPTIONS.grades||[]).forEach(function(g){var o=document.createElement("option");o.value=g;o.textContent=g;gradeSel.appendChild(o);});
+    initSS("ss_grade", [{text:"全部",value:""}].concat((OPTIONS.grades||[]).map(function(g){return{text:g,value:g};})));
+
+    var subjectSel = document.getElementById("f_subject");
+    (OPTIONS.subjects||[]).forEach(function(s){var o=document.createElement("option");o.value=s;o.textContent=s;subjectSel.appendChild(o);});
+    initSS("ss_subject", [{text:"全部",value:""}].concat((OPTIONS.subjects||[]).map(function(s){return{text:s,value:s};})));
+
+    document.getElementById("f_stage").addEventListener("change", onStageChange);
+
+    // 默认日期设为当天（新用户无偏好时显示当天，有偏好时 restorePreferences 会覆盖）
+    var todayStr = fmtDate(new Date());
+    if (!document.getElementById('f_start').value) document.getElementById('f_start').value = todayStr;
+    if (!document.getElementById('f_end').value) document.getElementById('f_end').value = todayStr;
+
+    // 恢复筛选偏好（优先级高于默认值）
+    restorePreferences();
+
+    document.addEventListener('keydown', function(e){
+        if(e.key!=='Enter') return;
+        if(e.target.tagName==='BUTTON') return;
+        for(var k in _ss){if(_ss[k]&&_ss[k].open) return;}
+        var fb = document.getElementById('globalFilterBar');
+        if(fb && fb.contains(document.activeElement)){e.preventDefault();doQuery();}
+    });
+
+    // 检查缓存：有缓存则恢复，不自动查询
+    var _cache = loadIndexCache();
+    if (_cache && renderFromCache(_cache)) {
+        console.log('从缓存恢复数据');
+    } else {
+        doQuery();
+    }
+
+    // 初始化图表卡片拉伸功能
+    initCardResize('#chartGrid .chart-card');
+}
+
+/* ── 原生图表卡片拉伸 ── */
+function initCardResize(selector) {
+    var cards = document.querySelectorAll(selector);
+    cards.forEach(function(card) {
+        card.addEventListener('mousemove', function(e) {
+            var rect = card.getBoundingClientRect();
+            var edge = 10; // 边缘检测阈值 px
+            var nearLeft = e.clientX < rect.left + edge;
+            var nearRight = e.clientX > rect.right - edge;
+            var nearBottom = e.clientY > rect.bottom - edge;
+            if (nearLeft && nearBottom) {
+                card.style.cursor = 'sw-resize';
+            } else if (nearRight && nearBottom) {
+                card.style.cursor = 'se-resize';
+            } else if (nearLeft) {
+                card.style.cursor = 'w-resize';
+            } else if (nearRight) {
+                card.style.cursor = 'e-resize';
+            } else if (nearBottom) {
+                card.style.cursor = 's-resize';
+            } else {
+                card.style.cursor = '';
+            }
+        });
+        card.addEventListener('mouseleave', function() {
+            card.style.cursor = '';
+        });
+        card.addEventListener('mousedown', function(e) {
+            var rect = card.getBoundingClientRect();
+            var edge = 10;
+            var nearLeft = e.clientX < rect.left + edge;
+            var nearRight = e.clientX > rect.right - edge;
+            var nearBottom = e.clientY > rect.bottom - edge;
+            if (!nearLeft && !nearRight && !nearBottom) return; // 不在边缘，不处理
+            e.preventDefault();
+            var startX = e.clientX, startY = e.clientY;
+            var startW = rect.width, startH = rect.height;
+            var resizeH = nearBottom, resizeW = nearRight, resizeL = nearLeft;
+            card.style.transition = 'none';
+
+            function onMove(ev) {
+                if (resizeL) {
+                    var newW = Math.max(280, startW - (ev.clientX - startX));
+                    card.style.width = newW + 'px';
+                } else if (resizeW) {
+                    var newW = Math.max(280, startW + (ev.clientX - startX));
+                    card.style.width = newW + 'px';
+                }
+                if (resizeH) {
+                    var newH = Math.max(200, startH + (ev.clientY - startY));
+                    card.style.height = newH + 'px';
+                    // 同步调整内部 chart-container 高度
+                    var container = card.querySelector('.chart-container');
+                    if (container) {
+                        container.style.height = (newH - 80) + 'px';
+                    }
+                }
+            }
+            function onUp() {
+                card.style.transition = '';
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                // 触发 Chart.js 重绘
+                var canvas = card.querySelector('canvas');
+                if (canvas && canvas.chartInstance) {
+                    canvas.chartInstance.resize();
+                }
+            }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    });
+}
+
+initPage();
+</script>
+{% endblock %}
