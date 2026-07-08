@@ -174,32 +174,30 @@ import os
 import shutil
 
 SYNC_TOKEN = "sync_key_2026_data_collector"
+ALLOWED_DBS = {"app": "app.db", "metabase": "metabase.db"}
 
 @collect_bp.route("/sync-db", methods=["POST"])
 def sync_db():
-    """Receive app.db from local server for real-time sync"""
     token = request.headers.get("X-Sync-Token", "")
     if token != SYNC_TOKEN:
         return jsonify({"error": "Invalid token"}), 403
-
     if "db_file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
-
+    db_name = request.form.get("db_name", "app")
+    if db_name not in ALLOWED_DBS:
+        return jsonify({"error": "Invalid db_name"}), 400
     db_file = request.files["db_file"]
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    db_path = os.path.join(project_root, "data", "app.db")
+    db_path = os.path.join(project_root, "data", ALLOWED_DBS[db_name])
     tmp_path = db_path + ".tmp"
-
     try:
         db_file.save(tmp_path)
-        # Validate it's a valid SQLite file
         import sqlite3
         conn = sqlite3.connect(tmp_path)
         conn.execute("SELECT count(*) FROM sqlite_master")
         conn.close()
-        # Replace the current db
         shutil.move(tmp_path, db_path)
-        return jsonify({"status": "ok", "message": "Database synced successfully"})
+        return jsonify({"status": "ok", "message": ALLOWED_DBS[db_name] + " synced"})
     except Exception as e:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
