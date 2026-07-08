@@ -861,6 +861,7 @@ function onStageChange() {
 
 async function doQuery() {
     var btn = document.getElementById("btnQuery");
+    _trendCache = null;  // 清空趋势缓存，确保每次查询都使用最新筛选条件
     btn.disabled = true; btn.textContent = '查询中...';
     document.getElementById("loadingOverlay").style.display = "block";
     document.getElementById("tableArea").style.display = "none";
