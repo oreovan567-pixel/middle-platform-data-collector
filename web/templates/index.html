@@ -526,15 +526,11 @@ async function updateDashboard() {
         return { tb: _tb ? extractKPIs(_tb) : null, hb: _hb ? extractKPIs(_hb) : null };
     };
 
-    // 判断是否为本地/内网服务器（非 Vercel 部署）
-    // - localhost / 127.0.0.1 / ::1 是本机
-    // - 192.168.x.x / 10.x.x.x / 172.16-31.x.x 是内网
-    // - 只有 Vercel 域名（.vercel.app）才走 kpi-summary 避免超时
+    // Vercel 部署时使用轻量 kpi-summary 避免超时；独立服务器始终走 fallback
     var _h = window.location.hostname;
-    var isLocal = _h === 'localhost' || _h === '127.0.0.1' || _h === '::1'
-        || /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(_h);
-    if (isLocal) {
-        // 本地服务器：直接走 fallback，数据与 module-usage 同源一致
+    var isVercel = _h.endsWith('.vercel.app');
+    if (!isVercel) {
+        // 独立服务器 / 本地：直接走 fallback，数据与 module-usage 同源一致
         var fb = await _doFallback();
         tb = fb.tb;
         hb = fb.hb;
@@ -547,8 +543,8 @@ async function updateDashboard() {
             kpiParams.set('end_date', endDate);
             var kpiResp = await fetch('/api/charts/kpi-summary?' + kpiParams.toString());
             var kpiData = await kpiResp.json();
-            if (kpiData.tongbi && kpiData.tongbi.dailyUV !== undefined) {
-                tb = kpiData.tongbi;  // 只含 dailyUV
+            if (kpiData.tongbi && typeof kpiData.tongbi.dailyUV === 'number' && kpiData.tongbi.dailyUV > 0) {
+                tb = kpiData.tongbi;
                 hb = kpiData.huanbi;
                 useFallback = false;
             }
