@@ -2091,6 +2091,24 @@ def trend_chart():
             labels.append(r["period"])
             uv_data.append(r["uv"])
 
+        # ── D21 direct: metabase.db 无数据时直接从 D21 每日 API 获取（单校折线图）──
+        if not uv_data and school_id_filter and granularity == "day":
+            try:
+                from models.school import School as _S0
+                _all0 = _S0.get_all()
+                _sobj0 = next((s for s in _all0 if s.metabase_school_id == school_id_filter), None)
+                _sname0 = (_sobj0.name or _sobj0.display_name) if _sobj0 else ""
+                if _sname0:
+                    _d21_direct = asyncio.run(_query_d21_daily_school(_sname0, start_date, end_date))
+                    if _d21_direct:
+                        for d21_date, d21_val in sorted(_d21_direct.items()):
+                            if d21_val > 0:
+                                labels.append(d21_date)
+                                uv_data.append(int(d21_val))
+                        logger.info("[Trend] D21 direct fallback for '%s': %d days", _sname0, len(labels))
+            except Exception as _e_d21:
+                logger.warning("[Trend] D21 direct fallback failed: %s", _e_d21)
+
         # ── SLS fallback: fill missing dates from live SLS data ──
         if granularity == "day":
             label_set = set(labels)
@@ -2137,6 +2155,16 @@ def trend_chart():
                                     new_uv.append(uv_data[i])
                             uv_data = [int(v) if isinstance(v, float) and v == int(v) else v for v in new_uv]
                             logger.info("[Trend] D21 per-day scaling for '%s': %s", _sname, {k: v for k, v in _d21_daily.items() if v > 0})
+                            # 合并 D21 中存在但 labels 中缺失的日期（metabase.db 过期 + SLS 不可用时的回退）
+                            _label_set = set(labels)
+                            for d21_date, d21_val in _d21_daily.items():
+                                if d21_val > 0 and d21_date not in _label_set:
+                                    labels.append(d21_date)
+                                    uv_data.append(int(d21_val))
+                            if labels:
+                                _sorted = sorted(zip(labels, uv_data), key=lambda x: x[0])
+                                labels[:] = [p[0] for p in _sorted]
+                                uv_data[:] = [p[1] for p in _sorted]
                 else:
                     # 全校：查询所有学校 D21 总 UV，全局缩放
                     _names = [_sid_to_name[sid] for sid in sids if sid in _sid_to_name]
