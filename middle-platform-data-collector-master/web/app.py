@@ -364,7 +364,6 @@ def create_app() -> Flask:
     from web.routes.export import export_bp
     from web.routes.school import school_bp
     from web.routes.user import user_bp
-    from web.routes.activity import activity_bp
     from web.routes.charts import charts_bp
 
     app.register_blueprint(main_bp)
@@ -372,7 +371,6 @@ def create_app() -> Flask:
     app.register_blueprint(export_bp, url_prefix="/api/export")
     app.register_blueprint(school_bp, url_prefix="/api/schools")
     app.register_blueprint(user_bp, url_prefix="/api/users")
-    app.register_blueprint(activity_bp)
     app.register_blueprint(charts_bp)
 
     _setup_auth(app)
