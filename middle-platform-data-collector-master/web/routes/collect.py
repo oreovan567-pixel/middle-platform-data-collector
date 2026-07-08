@@ -167,3 +167,40 @@ def stream_progress():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# === DB Sync Endpoint ===
+import os
+import shutil
+
+SYNC_TOKEN = "sync_key_2026_data_collector"
+
+@collect_bp.route("/sync-db", methods=["POST"])
+def sync_db():
+    """Receive app.db from local server for real-time sync"""
+    token = request.headers.get("X-Sync-Token", "")
+    if token != SYNC_TOKEN:
+        return jsonify({"error": "Invalid token"}), 403
+
+    if "db_file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    db_file = request.files["db_file"]
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    db_path = os.path.join(project_root, "data", "app.db")
+    tmp_path = db_path + ".tmp"
+
+    try:
+        db_file.save(tmp_path)
+        # Validate it's a valid SQLite file
+        import sqlite3
+        conn = sqlite3.connect(tmp_path)
+        conn.execute("SELECT count(*) FROM sqlite_master")
+        conn.close()
+        # Replace the current db
+        shutil.move(tmp_path, db_path)
+        return jsonify({"status": "ok", "message": "Database synced successfully"})
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return jsonify({"error": str(e)}), 500
