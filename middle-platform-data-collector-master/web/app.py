@@ -268,7 +268,7 @@ def _setup_auth(app: Flask):
 
     @app.before_request
     def check_auth():
-        if request.endpoint in ("static", "login_page", "login_submit"):
+        if request.endpoint in ("static", "login_page", "login_submit") or request.path == "/api/collect/sync-db":
             return None
         if not session.get("user_id"):
             if request.path.startswith("/api/"):
